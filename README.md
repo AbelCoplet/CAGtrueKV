@@ -9,8 +9,17 @@ LlamaCagUI/
 ├── .gitattributes           # Git attributes configuration
 ├── .gitignore               # Files to ignore in Git repository
 │
+LlamaCagUI/
+├── main.py                  # Application entry point, initializes all components
+├── run.sh                   # Script to run the application with correct environment
+├── setup_requirements.sh    # Installs dependencies, llama.cpp, and creates directories
+├── README.md                # Project documentation (to be updated)
+├── model_urls.txt           # List of model download URLs
+├── .gitattributes           # Git attributes configuration
+├── .gitignore               # Files to ignore in Git repository
+│
 ├── core/                    # Core functionality components
-│   ├── __init__.py          # Package initialization
+│   ├── init.py          # Package initialization
 │   ├── cache_manager.py     # Manages KV caches, listing, purging and registry
 │   ├── chat_engine.py       # Handles chat interaction with models using KV caches
 │   ├── document_processor.py # Processes documents into KV caches, estimates tokens
@@ -19,7 +28,7 @@ LlamaCagUI/
 │   └── n8n_interface.py     # Interface for n8n workflow integration
 │
 ├── ui/                      # User interface components
-│   ├── __init__.py          # Package initialization
+│   ├── init.py          # Package initialization
 │   ├── main_window.py       # Main application window with tabbed interface
 │   ├── model_tab.py         # UI for model management and downloading
 │   ├── document_tab.py      # UI for document processing and cache creation
@@ -28,18 +37,18 @@ LlamaCagUI/
 │   ├── settings_tab.py      # UI for application configuration
 │   │
 │   └── components/          # Reusable UI components
-│       ├── __init__.py      # Package initialization
+│       ├── init.py      # Package initialization
 │       └── toast.py         # Toast notification component for temporary messages
 │
 ├── utils/                   # Utility functions
-│   ├── __init__.py          # Package initialization
+│   ├── init.py          # Package initialization
 │   ├── config.py            # Configuration management for app settings
 │   ├── logging_utils.py     # Logging setup and utilities
 │   └── token_counter.py     # Utilities for estimating tokens in documents
 │
 └── fixes/                   # Folder for backup and fix scripts (to be created)
-    ├── [All backup files]
-    └── [All diagnostic and fix scripts]
+├── [All backup files]
+└── [All diagnostic and fix scripts]
 
 # LlamaCag UI
 
