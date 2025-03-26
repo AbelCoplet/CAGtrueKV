@@ -4,6 +4,39 @@
 
 LlamaCag UI is a desktop application that enables context-augmented generation (CAG) with large language models. It allows you to feed documents into a language model's context window and ask questions that leverage that context, creating an experience similar to chatting with your documents.
 
+---
+
+**IMPORTANT NOTE ON CURRENT KV CACHE IMPLEMENTATION (As of March 26, 2025):**
+
+The original goal was to implement *true* KV caching using `llama-cpp-python`'s state saving/loading (`save_state`/`load_state`). This involves processing the document once, saving the model's internal state (KV cache), and then loading this state for subsequent chat interactions to avoid re-processing the document context, leading to significant performance gains.
+
+**Challenges Encountered:**
+Despite successfully saving the KV cache state (using `pickle` after `llm.save_state()` without arguments, as direct saving to path caused errors), we faced persistent issues getting the model (tested primarily with Gemma 3 4B Instruct) to correctly utilize the loaded state via `llm.load_state()`. Even though the state loaded without errors, the model consistently failed to recall or use the document context present in the loaded cache when answering questions.
+
+**Troubleshooting Strategies Tried:**
+Several approaches were attempted to make the loaded KV cache effective:
+1.  Using `llm.create_completion` after `load_state`, with various prompt structures (minimal prompt, prompt including user message).
+2.  Using `llm.create_completion` after `load_state` and also evaluating the user message tokens (`llm.eval(message_tokens)`).
+3.  Using `llm.create_chat_completion` after `load_state`, passing only the user message.
+4.  Using `llm.create_chat_completion` after `load_state` and also evaluating the user message tokens, passing an empty message list to `create_chat_completion`.
+
+None of these standard methods reliably resulted in the model using the context from the loaded cache. This might be due to subtle bugs in the specific `llama-cpp-python` version, model-specific behavior regarding state loading, or undocumented interactions between `load_state`, `eval`, and the generation methods.
+
+**Current Workaround (Functionality over Performance):**
+To ensure the core functionality (chatting with document context) works reliably, the following workaround is currently implemented:
+1.  **KV Cache Creation:** Document processing still creates a `.llama_cache` file (containing the pickled model state), primarily serving as a marker that context is available.
+2.  **KV Cache Loading (`load_state`) is DISABLED** in the `ChatEngine` during inference.
+3.  **Manual Context Prepending:** When "Use KV Cache" is enabled and a cache file is selected, the application finds the *original document* associated with that cache. It reads the beginning of this document (up to 8000 characters) and **manually inserts this text into the system prompt** sent to the model via `llm.create_chat_completion`.
+4.  **Conversational Memory:** Recent chat history is included in the messages passed to `create_chat_completion`.
+
+**Implications:**
+-   **Functionality:** The model *does* receive the document context (via the system prompt) and can answer questions based on it. Conversational memory is also functional.
+-   **Performance:** The significant performance benefit of true KV caching (avoiding re-processing the context) is **lost**. The model processes the prepended context along with the chat history and the new question on every turn.
+
+This workaround prioritizes correct context-aware responses over the performance optimization that true KV caching would provide. Further investigation would be needed to resolve the underlying issues with `load_state` utilization.
+
+---
+
 ## Core Concept: Context-Augmented Generation (CAG) with KV Caching
 
 The fundamental idea behind LlamaCag UI is **Context-Augmented Generation (CAG)**, leveraging the power of `llama.cpp`'s KV (Key/Value) caching mechanism. Unlike standard RAG (Retrieval-Augmented Generation) systems that retrieve snippets of text, CAG:

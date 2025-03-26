@@ -361,8 +361,25 @@ class DocumentProcessor(QObject):
 
             # Update document info in registry (mark others as not master)
             for doc_id_reg, info in self._document_registry.items():
-                info['is_master'] = (doc_id_reg == document_id)
+                 info['is_master'] = (doc_id_reg == document_id)
             self._save_document_registry() # Save updated registry
+
+            # Register the newly created master cache file with the cache manager
+            # Pass along details from the original document's info
+            try:
+                 logging.info(f"Registering master cache '{str(master_cache_path)}' with cache manager.")
+                 self.cache_manager.register_cache(
+                     document_id="master_cache", # Specific ID for master
+                     cache_path=str(master_cache_path),
+                     context_size=doc_info.get('context_size', 0),
+                     token_count=doc_info.get('token_count', 0),
+                     original_file_path=doc_info.get('original_file_path', ''), # Crucial: Pass original path
+                     model_id=doc_info.get('model_id', ''),
+                     is_master=True
+                 )
+            except Exception as reg_e:
+                 logging.error(f"Failed to register master cache with cache manager: {reg_e}")
+                 # Continue anyway, but log the error
 
             return True
 

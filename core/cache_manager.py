@@ -58,63 +58,88 @@ class CacheManager(QObject):
     def refresh_cache_list(self, scan_now=True):
         """
         Scans the cache directory for .llama_cache files and updates the registry.
-        Emits cache_list_updated only if changes are detected compared to the last scan.
+        Preserves explicitly registered info (like original_document).
+        Emits cache_list_updated only if entries are added or removed.
         """
         if not self.kv_cache_dir:
             logging.error("Cache directory not set. Cannot refresh cache list.")
             return
 
         if not scan_now:
-             print("Cache list refresh requested (NO SCANNING)")
-             # Optionally emit here if UI needs update even without scanning,
-             # but be careful about recursion if connected back to this function.
-             # self.cache_list_updated.emit()
-             return
+            print("Cache list refresh requested (NO SCANNING)")
+            return
 
         logging.info(f"Scanning cache directory: {self.kv_cache_dir}")
-        found_files = set()
-        current_registry = {}
+        found_paths = set()
+        new_entries = {}
+        updated_existing = False
         doc_registry = self._load_document_registry() # Load mapping from doc_id to info
 
         try:
             for item in self.kv_cache_dir.glob('*.llama_cache'):
                 if item.is_file():
-                    file_path_str = str(item)
-                    found_files.add(file_path_str)
+                    file_path_str = str(item.resolve()) # Use resolved path as key
+                    found_paths.add(file_path_str)
                     try:
                         stat_result = item.stat()
                         size_bytes = stat_result.st_size
-                        
-                        # Try to find associated document_id from filename or doc registry
-                        doc_id = item.stem # e.g., "my_document" from "my_document.llama_cache"
-                        original_doc_path = "Unknown"
-                        if doc_id in doc_registry:
-                            original_doc_path = doc_registry[doc_id].get('original_file_path', 'Unknown')
-                        
-                        current_registry[file_path_str] = {
-                            'path': file_path_str,
-                            'filename': item.name,
-                            'size': size_bytes,
-                            'last_modified': stat_result.st_mtime,
-                            'document_id': doc_id, # Best guess from filename
-                            'original_document': original_doc_path # From registry if found
-                        }
+                        last_modified = stat_result.st_mtime
+
+                        if file_path_str in self._cache_registry:
+                            # Existing entry: Update only size and modified time
+                            if (self._cache_registry[file_path_str].get('size') != size_bytes or
+                                self._cache_registry[file_path_str].get('last_modified') != last_modified):
+                                self._cache_registry[file_path_str]['size'] = size_bytes
+                                self._cache_registry[file_path_str]['last_modified'] = last_modified
+                                updated_existing = True # Mark potential change for signal emission
+                                logging.debug(f"Updated metadata for existing cache: {item.name}")
+                        else:
+                            # New entry: Add to temporary dict using doc_registry lookup
+                            doc_id = item.stem
+                            original_doc_path = "Unknown"
+                            if doc_id in doc_registry:
+                                original_doc_path = doc_registry[doc_id].get('original_file_path', 'Unknown')
+
+                            new_entries[file_path_str] = {
+                                'path': file_path_str,
+                                'filename': item.name,
+                                'size': size_bytes,
+                                'last_modified': last_modified,
+                                'document_id': doc_id,
+                                'original_document': original_doc_path
+                            }
+                            logging.debug(f"Found new cache file to add: {item.name}")
+
                     except OSError as e:
                         logging.warning(f"Could not stat cache file {item}: {e}")
                     except Exception as e:
-                         logging.error(f"Unexpected error processing cache file {item}: {e}")
+                        logging.error(f"Unexpected error processing cache file {item}: {e}")
 
-            # Check if the found files differ from the last scan
-            if found_files != self._last_scan_results:
-                logging.info(f"Cache list changed. Found {len(found_files)} caches.")
-                self._cache_registry = current_registry
-                self._last_scan_results = found_files
-                self.cache_list_updated.emit() # Emit signal ONLY if changes detected
+            # Add newly found entries
+            added_new = bool(new_entries)
+            self._cache_registry.update(new_entries)
+
+            # Remove entries for files that no longer exist
+            removed_paths = set(self._cache_registry.keys()) - found_paths
+            removed_any = bool(removed_paths)
+            if removed_any:
+                for path_to_remove in removed_paths:
+                    logging.info(f"Removing missing cache file from registry: {Path(path_to_remove).name}")
+                    del self._cache_registry[path_to_remove]
+
+            # Update last scan results
+            self._last_scan_results = found_paths
+
+            # Emit signal only if entries were added or removed
+            if added_new or removed_any:
+                logging.info(f"Cache list updated: {len(self._cache_registry)} entries total.")
+                self.cache_list_updated.emit()
+            elif updated_existing:
+                 logging.info("Cache metadata updated, but list structure unchanged.")
+                 # Optionally emit signal even if only metadata changed, if UI needs it
+                 # self.cache_list_updated.emit()
             else:
-                logging.info("Cache list unchanged.")
-                # Update registry anyway in case file metadata changed, but don't emit signal
-                self._cache_registry = current_registry
-
+                 logging.info("Cache list scan found no changes.")
 
         except Exception as e:
             logging.error(f"Failed to scan cache directory {self.kv_cache_dir}: {e}")
