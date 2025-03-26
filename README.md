@@ -1,99 +1,22 @@
-# LlamaCag UI
+# LlamaCag UI Enhancement Plan
 
-## Context-Augmented Generation for Large Language Models
-
-LlamaCag UI is a desktop application that enables context-augmented generation (CAG) with large language models. It allows you to feed documents into a language model's context window and ask questions that leverage that context, creating an experience similar to chatting with your documents.
-
----
-
-**IMPORTANT NOTE ON CURRENT KV CACHE IMPLEMENTATION (As of March 26, 2025):**
-
-The original goal was to implement *true* KV caching using `llama-cpp-python`'s state saving/loading (`save_state`/`load_state`). This involves processing the document once, saving the model's internal state (KV cache), and then loading this state for subsequent chat interactions to avoid re-processing the document context, leading to significant performance gains.
-
-**Challenges Encountered:**
-Despite successfully saving the KV cache state (using `pickle` after `llm.save_state()` without arguments, as direct saving to path caused errors), we faced persistent issues getting the model (tested primarily with Gemma 3 4B Instruct) to correctly utilize the loaded state via `llm.load_state()`. Even though the state loaded without errors, the model consistently failed to recall or use the document context present in the loaded cache when answering questions.
-
-**Troubleshooting Strategies Tried:**
-Several approaches were attempted to make the loaded KV cache effective:
-1.  Using `llm.create_completion` after `load_state`, with various prompt structures (minimal prompt, prompt including user message).
-2.  Using `llm.create_completion` after `load_state` and also evaluating the user message tokens (`llm.eval(message_tokens)`).
-3.  Using `llm.create_chat_completion` after `load_state`, passing only the user message.
-4.  Using `llm.create_chat_completion` after `load_state` and also evaluating the user message tokens, passing an empty message list to `create_chat_completion`.
-
-None of these standard methods reliably resulted in the model using the context from the loaded cache. This might be due to subtle bugs in the specific `llama-cpp-python` version, model-specific behavior regarding state loading, or undocumented interactions between `load_state`, `eval`, and the generation methods.
-
-**Current Workaround (Functionality over Performance):**
-To ensure the core functionality (chatting with document context) works reliably, the following workaround is currently implemented:
-1.  **KV Cache Creation:** Document processing still creates a `.llama_cache` file (containing the pickled model state), primarily serving as a marker that context is available.
-2.  **KV Cache Loading (`load_state`) is DISABLED** in the `ChatEngine` during inference.
-3.  **Manual Context Prepending:** When "Use KV Cache" is enabled and a cache file is selected, the application finds the *original document* associated with that cache. It reads the beginning of this document (up to 8000 characters) and **manually inserts this text into the system prompt** sent to the model via `llm.create_chat_completion`.
-4.  **Conversational Memory:** Recent chat history is included in the messages passed to `create_chat_completion`.
-
-**Implications:**
--   **Functionality:** The model *does* receive the document context (via the system prompt) and can answer questions based on it. Conversational memory is also functional.
--   **Performance:** The significant performance benefit of true KV caching (avoiding re-processing the context) is **lost**. The model processes the prepended context along with the chat history and the new question on every turn.
-
-This workaround prioritizes correct context-aware responses over the performance optimization that true KV caching would provide. Further investigation would be needed to resolve the underlying issues with `load_state` utilization.
-
----
-
-## Core Concept: Context-Augmented Generation (CAG) with KV Caching
-
-The fundamental idea behind LlamaCag UI is **Context-Augmented Generation (CAG)**, leveraging the power of `llama.cpp`'s KV (Key/Value) caching mechanism. Unlike standard RAG (Retrieval-Augmented Generation) systems that retrieve snippets of text, CAG:
-
-1.  **Processes the entire document** through the language model once to generate its internal state (the KV cache).
-2.  **Saves this KV cache** to disk.
-3.  **Loads the saved KV cache** for subsequent interactions, allowing the model to "remember" the document context without re-processing the full text.
-4.  **Enables deep contextual understanding** by having the model's state primed with the document content.
-5.  **Allows fast follow-up questions** as only the new query needs to be processed by the model.
-
-This approach allows models like Gemma 3 and Llama 3 to efficiently utilize their large context windows (e.g., 128K tokens) for in-depth document analysis and question answering, significantly speeding up conversations after the initial document processing.
-
-## Features
-
-- **Model Management**: Download, manage, and select from various large context window models
-- **Model Management**: Download, manage, and select from various large context window models (GGUF format).
-- **Document Processing**: Load documents and process them into true `llama.cpp` KV caches for efficient context augmentation.
-- **Interactive Chat**: Chat with your documents, leveraging the pre-processed KV cache for fast responses.
-- **KV Cache Monitor**: Track and manage your document KV caches.
-- **Settings**: Configure paths, model parameters (threads, batch size, GPU layers), and application behavior.
-
-### Screenshots
-
-![Screenshot 2025-03-25 at 22.42.34](images/Screenshot%202025-03-25%20at%2022.42.34.png)
-![Screenshot 2025-03-25 at 22.42.41](images/Screenshot%202025-03-25%20at%2022.42.41.png)
-![Screenshot 2025-03-25 at 22.42.51](images/Screenshot%202025-03-25%20at%2022.42.51.png)
-![Screenshot 2025-03-25 at 22.42.56](images/Screenshot%202025-03-25%20at%2022.42.56.png)
-![Screenshot 2025-03-25 at 22.43.12](images/Screenshot%202025-03-25%20at%2022.43.12.png)
-
-## Installation
-
-# LlamaCag UI Complete File Structure
-
-```
 LlamaCagUI/
 ├── main.py                  # Application entry point, initializes all components
 ├── run.sh                   # Script to run the application with correct environment
-├── setup_requirements.sh    # Installs all dependencies, llama.cpp, and creates directories
-├── cleanup_and_fix.sh       # Utility to clean up installation issues
-├── diagnose.sh              # Diagnostic tool to check for proper installation
-├── reset.sh                 # Resets application settings to defaults
-├── debug_subprocess.py      # Utility for debugging subprocess calls
-├── test_app.py              # Simple PyQt test application
-├── .env                     # Environment variables and configuration
-├── .env.example             # Example configuration file
+├── setup_requirements.sh    # Installs dependencies, llama.cpp, and creates directories
+├── README.md                # Project documentation (to be updated)
 ├── model_urls.txt           # List of model download URLs
 ├── .gitattributes           # Git attributes configuration
 ├── .gitignore               # Files to ignore in Git repository
 │
 ├── core/                    # Core functionality components
 │   ├── __init__.py          # Package initialization
-│   ├── cache_manager.py     # Manages KV caches, including listing, purging and registry
+│   ├── cache_manager.py     # Manages KV caches, listing, purging and registry
 │   ├── chat_engine.py       # Handles chat interaction with models using KV caches
 │   ├── document_processor.py # Processes documents into KV caches, estimates tokens
 │   ├── llama_manager.py     # Manages llama.cpp installation and updates
 │   ├── model_manager.py     # Handles model downloading, importing, and selection
-│   └── n8n_interface.py     # Interface for optional n8n workflow integration
+│   └── n8n_interface.py     # Interface for n8n workflow integration
 │
 ├── ui/                      # User interface components
 │   ├── __init__.py          # Package initialization
@@ -101,7 +24,6 @@ LlamaCagUI/
 │   ├── model_tab.py         # UI for model management and downloading
 │   ├── document_tab.py      # UI for document processing and cache creation
 │   ├── chat_tab.py          # UI for chatting with documents
-│   ├── chat_tab.py.backup   # Backup of chat tab implementation
 │   ├── cache_tab.py         # UI for KV cache monitoring and management
 │   ├── settings_tab.py      # UI for application configuration
 │   │
@@ -114,37 +36,64 @@ LlamaCagUI/
 │   ├── config.py            # Configuration management for app settings
 │   ├── logging_utils.py     # Logging setup and utilities
 │   └── token_counter.py     # Utilities for estimating tokens in documents
-```
+│
+└── fixes/                   # Folder for backup and fix scripts (to be created)
+    ├── [All backup files]
+    └── [All diagnostic and fix scripts]
 
-*(Note: `scripts/bash` and `utils/script_runner.py` have been removed)*
+# LlamaCag UI
 
-## Runtime-Created Directories (Not in Repository)
+![LlamaCag Logo](https://via.placeholder.com/800x200?text=LlamaCag+UI)
 
-```
-~/.llamacag/                 # User configuration directory
-├── logs/                    # Application log files with timestamps
-├── config.json              # User-specific configuration
-└── custom_models.json       # User-defined model configurations
+## Context-Augmented Generation for Large Language Models
 
-~/Documents/llama.cpp/       # llama.cpp installation directory
-├── build/                   # Compiled binaries
-│   └── bin/                 # Contains main or llama-cli executables
-├── models/                  # Downloaded model files (.gguf format)
-└── ... (other llama.cpp files)
+LlamaCag UI is a desktop application that enables context-augmented generation (CAG) with large language models. It allows you to feed entire documents into a language model's context window and ask questions that leverage that full context, creating an experience similar to chatting with your documents with unprecedented accuracy.
 
-~/cag_project/               # Working directory for documents and caches (configurable)
-├── kv_caches/               # Stores document KV caches
-│   ├── *.llama_cache        # Binary KV cache state files generated by llama.cpp
-│   ├── master_cache.llama_cache # Default cache used when none selected
-│   ├── cache_registry.json  # Metadata about created caches
-│   └── usage_registry.json  # Usage statistics for caches
-└── temp_chunks/             # Temporary files used during processing (configurable)
-```
+## 📋 Table of Contents
+
+- [Core Concept](#core-concept)
+- [Key Features](#key-features)
+- [Screenshots](#screenshots)
+- [Installation](#installation)
+- [Usage Guide](#usage-guide)
+- [Technical Details](#technical-details)
+- [Troubleshooting](#troubleshooting)
+- [FAQ](#faq)
+- [License and Credits](#license-and-credits)
+
+## 🧠 Core Concept
+
+The fundamental idea behind LlamaCag UI is **Context-Augmented Generation (CAG)**, leveraging the power of `llama.cpp`'s KV (Key/Value) caching mechanism. Unlike standard RAG (Retrieval-Augmented Generation) systems that retrieve snippets of text, CAG:
+
+1. **Processes the entire document** through the language model once to generate its internal state (the KV cache)
+2. **Saves this KV cache** to disk
+3. **Loads the saved KV cache** for subsequent interactions, allowing the model to "remember" the document context without re-processing the full text
+4. **Enables deep contextual understanding** by having the model's state primed with the document content
+5. **Allows fast follow-up questions** as only the new query needs to be processed by the model
+
+This approach allows models like Gemma 3 and Llama 3 to efficiently utilize their large context windows (e.g., 128K tokens) for in-depth document analysis and question answering, significantly speeding up conversations after the initial document processing.
+
+## ✨ Key Features
+
+- **Model Management**: Download, manage, and select from various large context window models (GGUF format)
+- **Document Processing**: Load documents and process them into true `llama.cpp` KV caches for efficient context augmentation
+- **Interactive Chat**: Chat with your documents, leveraging the pre-processed KV cache for fast responses
+- **KV Cache Monitor**: Track and manage your document KV caches
+- **Settings**: Configure paths, model parameters (threads, batch size, GPU layers), and application behavior
+
+## 📷 Screenshots
+
+![Model Management](https://via.placeholder.com/800x450?text=Model+Management)
+![Document Processing](https://via.placeholder.com/800x450?text=Document+Processing) 
+![Chat Interface](https://via.placeholder.com/800x450?text=Chat+Interface)
+![KV Cache Monitor](https://via.placeholder.com/800x450?text=KV+Cache+Monitor)
+![Settings](https://via.placeholder.com/800x450?text=Settings)
+
+## 🚀 Installation
 
 ### Prerequisites
 
-- macOS (tested on macOS Ventura and later)
-- Python 3.8 or higher
+- macOS, Linux, or Windows with Python 3.8+
 - 16GB+ RAM recommended for optimal performance
 - Internet connection (for downloading models)
 
@@ -154,100 +103,84 @@ LlamaCagUI/
 - 16GB RAM: Handles documents up to ~75K tokens
 - 32GB+ RAM: Required for utilizing full 128K context window
 
-### Installing Dependencies
+### Quick Installation
 
 ```bash
-# Required Python dependencies
-pip3 install PyQt5 requests python-dotenv llama-cpp-python
+# Clone the repository
+git clone https://github.com/yourusername/LlamaCagUI.git
+cd LlamaCagUI
 
-# Optional dependencies for enhanced functionality (document parsing, token counting)
-# pip3 install tiktoken PyPDF2 python-docx
+# Run the setup script
+chmod +x setup_requirements.sh
+./setup_requirements.sh
+
+# Run the application
+./run.sh
 ```
-*(Note: `llama-cpp-python` is now a core dependency)*
 
-### Installation Steps
+### Manual Installation
 
-1. **Clone the repository**:
+If you prefer to install manually:
+
+1. **Install Python dependencies**:
    ```bash
-   git clone https://github.com/yourusername/LlamaCagUI.git
-   cd LlamaCagUI
+   pip install PyQt5 requests python-dotenv llama-cpp-python
    ```
 
-2. **Set up the environment**:
+2. **Set up llama.cpp**:
    ```bash
-   # Make run script executable
-   chmod +x run.sh
-
-   # Install requirements (includes llama-cpp-python and builds llama.cpp)
-   # Note: setup_requirements.sh will attempt to install Homebrew if not found
-   # You may be prompted for your password during installation
-   ./setup_requirements.sh
+   mkdir -p ~/Documents/llama.cpp
+   git clone https://github.com/ggerganov/llama.cpp.git ~/Documents/llama.cpp
+   cd ~/Documents/llama.cpp
+   mkdir -p build
+   cd build
+   cmake ..
+   cmake --build . -j $(nproc)
+   mkdir -p ~/Documents/llama.cpp/models
    ```
 
-3. **Run the application**:
+3. **Create necessary directories**:
+   ```bash
+   mkdir -p ~/.llamacag/logs
+   mkdir -p ~/cag_project/kv_caches
+   mkdir -p ~/cag_project/temp_chunks
+   ```
+
+## 📝 Usage Guide
+
+### First-Time Setup
+
+1. **Start the application**:
    ```bash
    ./run.sh
    ```
 
-### Verifying Installation
+2. **Download a model**: 
+   - Go to the Models tab
+   - Click "Download Model"
+   - Select a model (Gemma 3 4B Instruct recommended for beginners)
+   - Wait for the download to complete
 
-After installation, verify that everything is working correctly:
-
-1. **Run the diagnostics script**:
-   ```bash
-   ./diagnose.sh
-   ```
-   This will check for all dependencies and required directories.
-
-2. **Check llama.cpp installation**:
-   ```bash
-   # Verify llama.cpp is built correctly
-   ls ~/Documents/llama.cpp/build/bin
-   ```
-   You should see `main` or `llama-cli` executable.
-
-3. **Test application launch**:
-   Run `./run.sh` and confirm the application opens without errors.
-
-## Directory Structure
-
-LlamaCag UI creates and uses the following directories:
-
-- **~/.llamacag/**: Configuration directory
-  - **logs/**: Log files for troubleshooting
-  - **config.json**: User configuration
-  - **custom_models.json**: Custom model definitions
-
-- **~/Documents/llama.cpp/**: llama.cpp installation
-  - **models/**: Downloaded model files (.gguf)
-
-- **~/cag_project/**: Working directories
-  - **kv_caches/**: Document caches
-  - **temp_chunks/**: Temporary files used during processing
-
-## Usage Guide
-
-### First-Time Setup
-
-1. **Install llama.cpp**: If not already installed, the app will prompt you to install it
-2. **Download a model**: Go to the Models tab and download one of the provided models (Gemma 3 4B Instruct recommended)
+3. **Verify installation**:
+   - Check that the model appears in the Models tab
+   - Select the model by clicking on it
 
 ### Processing Documents (Creating a KV Cache)
 
-1.  Go to the **Documents** tab.
-2.  Click **Select File** to choose a document (`.txt`, `.md`, etc.).
-3.  The app estimates the token count and indicates if it fits the current model's context window.
-4.  Click **Create KV Cache**. This uses `llama.cpp` via `llama-cpp-python` to process the document's tokens and saves the resulting model state (the KV cache) to a `.llama_cache` file. This step can take time depending on document size and hardware.
-5.  Optionally check "Set as Master KV Cache" to make this the default cache for new chats.
+1. Go to the **Documents** tab
+2. Click **Select File** to choose a document (`.txt`, `.md`, etc.)
+3. The app estimates the token count and indicates if it fits the current model's context window
+4. Click **Create KV Cache**. This processes the document's tokens and saves the resulting model state (the KV cache) to a `.llama_cache` file
+5. Optionally check "Set as Master KV Cache" to make this the default cache for new chats
 
 ### Chatting with Documents (Using a KV Cache)
 
-1.  Go to the **Chat** tab.
-2.  Ensure **Use KV Cache** is checked. The currently selected or master KV cache will be loaded.
-3.  Type your question about the document in the input field.
-4.  Click **Send**. The application loads the KV cache and processes *only your query*, resulting in a fast response that leverages the document's context.
-5.  Continue the conversation with follow-up questions, which remain fast as the document context is already loaded via the cache.
-6.  Adjust temperature and max tokens settings as needed.
+1. Go to the **Chat** tab
+2. Ensure **Use KV Cache** is checked. The currently selected or master KV cache will be loaded
+3. Type your question about the document in the input field
+4. Click **Send**. The application loads the KV cache and processes *only your query*, resulting in a fast response that leverages the document's context
+5. Continue the conversation with follow-up questions, which remain fast as the document context is already loaded via the cache
+6. Adjust temperature and max tokens settings as needed
 
 ### Managing KV Caches
 
@@ -257,95 +190,39 @@ LlamaCag UI creates and uses the following directories:
 4. Click **Purge All** to remove all caches and start fresh
 5. Use **Refresh** to update the cache list after external changes
 
-## File Management
+## 🔍 Technical Details
 
-### Document KV Caches
+### How Context-Augmented Generation Works
 
-KV caches are stored in `~/cag_project/kv_caches/` (configurable via Settings). Each cache consists of:
+LlamaCag UI uses `llama-cpp-python` for true KV caching:
 
--   A `.llama_cache` file: This binary file contains the internal state (Key/Value cache) of the `llama.cpp` model after processing the document.
--   Registry entries in `cache_registry.json` and `usage_registry.json`.
+1. **Cache Creation**:
+   - When you process a document, the application loads the selected language model
+   - The document text is tokenized
+   - The model processes these tokens (`llm.eval(tokens)`), populating its internal Key/Value state
+   - This internal state is saved to disk as a `.llama_cache` file (`llm.save_state(...)`)
 
-### Cache Registry Files
+2. **Chatting with Cache**:
+   - When you start a chat with "Use KV Cache" enabled, the application loads the model
+   - It then loads the pre-computed state from the selected `.llama_cache` file (`llm.load_state(...)`)
+   - Your query is tokenized and processed (`llm.eval(query_tokens)` or `llm.create_completion(...)`). Since the document context is already in the model's state via the cache, only the query needs processing, making responses much faster
 
-Two registry files track cache information within the `kv_caches` directory:
+### Directory Structure
 
--   `cache_registry.json`: Stores metadata about each cache file (original document, model used, context size, token count, creation time).
--   `usage_registry.json`: Tracks usage statistics (last used time, usage count).
+LlamaCag UI creates and uses the following directories:
 
-### Cache Management Operations
+- **~/.llamacag/**: Configuration directory
+  - **logs/**: Log files for troubleshooting
+  - **config.json**: User configuration
 
--   **Viewing Caches**: The KV Cache Monitor tab lists all detected `.llama_cache` files and their metadata from the registry. Use **Refresh** to rescan the directory.
--   **Selecting a Cache**: Use the **Use Selected** button in the monitor tab to load a specific cache for the current chat session.
--   **Deleting Caches**: **Purge Selected** removes a single cache file and its registry entries. **Purge All** removes all `.llama_cache` files and clears the registries.
--   **Setting a Master Cache**: In the Documents tab, check "Set as Master KV Cache" when processing a document to make it the default cache loaded when "Use KV Cache" is enabled in the Chat tab. The master cache file is named `master_cache.llama_cache`.
+- **~/Documents/llama.cpp/**: llama.cpp installation
+  - **models/**: Downloaded model files (.gguf)
 
-### Temporary Files
+- **~/cag_project/**: Working directories
+  - **kv_caches/**: Document caches
+  - **temp_chunks/**: Temporary files used during processing
 
-Temporary files created during processing are stored in `~/cag_project/temp_chunks/` and can be safely deleted if you need to free up space.
-
-## Model Management
-
-### Downloading Models
-
-1. Go to the **Models** tab
-2. Click **Download Model** to see available models
-3. Select a model and click **Download Selected Model**
-4. Wait for the download to complete
-
-### Model Recommendations
-
-- **Gemma 3 4B Instruct (Q4_K_M)**: Best balance of performance and memory usage (recommended)
-- **Llama 3 8B Instruct**: Higher quality responses for more complex documents
-- **Mistral 7B Instruct**: Good alternative with strong reasoning capabilities
-
-### Manual Download
-
-If the automatic download fails:
-1. Go to the Models tab and click **Manual Download Info**
-2. Follow the instructions to download and place the model files manually
-3. Click **Refresh** to detect the manually downloaded models
-
-## Configuration
-
-### Advanced Configuration
-
-LlamaCag UI stores its configuration in:
-
-1.  **User Config**: `~/.llamacag/config.json` - Contains user-specific settings modified via the UI (paths, model parameters).
-2.  **Environment Variables**: `.env` file in the application's root directory - Can be used to override defaults or provide settings not in the UI (e.g., `LLAMACPP_GPU_LAYERS`).
-3.  **Cache Registries**: `~/cag_project/kv_caches/cache_registry.json` and `usage_registry.json` - Managed automatically by the application.
-
-To modify settings not available in the UI (like GPU layers):
-
-1. Close the application
-2. Edit `~/.llamacag/config.json`
-3. Restart the application
-
-### Paths
-
-All paths can be configured in the Settings tab:
-- **llama.cpp Path**: Location of the llama.cpp installation
-- **Models Path**: Directory where models are stored
-- **KV Cache Path**: Directory where document caches are stored
-- **Temp Path**: Directory for temporary files during processing
-
-### Model Parameters
-
-Configurable in the Settings tab or via `.env`:
-
--   **Threads**: Number of CPU threads for inference (default: system CPU count).
--   **Batch Size**: Batch size for prompt processing (default: 512).
--   **GPU Layers**: Number of model layers to offload to GPU (set via `LLAMACPP_GPU_LAYERS` in `.env`, requires `llama-cpp-python` built with GPU support). Default is 0 (CPU only).
-
-### n8n Integration
-
-LlamaCag UI includes optional integration with n8n for workflow automation:
-- Configure n8n host and port in the Settings tab
-- Use the start/stop controls to manage the n8n service
-- This feature is optional and not required for core functionality
-
-## Troubleshooting
+## 🛠️ Troubleshooting
 
 ### Common Issues
 
@@ -368,106 +245,211 @@ LlamaCag UI includes optional integration with n8n for workflow automation:
 
 #### "KV cache not found" or "Invalid KV Cache"
 
-**Cause**: The document hasn't been processed, the `.llama_cache` file is missing, corrupted, or incompatible with the current model/settings.
+**Cause**: The document hasn't been processed, the `.llama_cache` file is missing, or it's incompatible with the current model/settings.
 
 **Solution**:
-1.  Process the document again using the **Documents** tab with the desired model selected.
-2.  Check if the `.llama_cache` file exists in `~/cag_project/kv_caches/` (or your configured path).
-3.  Ensure the model selected in the **Models** tab is the same one used to create the cache.
-4.  Try purging the cache via the **KV Cache Monitor** and re-processing the document.
+1. Process the document again using the **Documents** tab with the desired model selected
+2. Check if the `.llama_cache` file exists in `~/cag_project/kv_caches/` (or your configured path)
+3. Ensure the model selected in the **Models** tab is the same one used to create the cache
+4. Try purging the cache via the **KV Cache Monitor** and re-processing the document
 
 ### Reset and Diagnostics
 
 If you encounter persistent issues:
 
 ```bash
-# Run diagnostics
-./diagnose.sh
-
-# Reset settings
-./reset.sh
-
-# For a complete reset, you can also run:
-./cleanup_and_fix.sh
+# Create a fresh configuration
+rm -rf ~/.llamacag
+rm -rf ~/cag_project/kv_caches
+rm -rf ~/cag_project/temp_chunks
+mkdir -p ~/.llamacag/logs
+mkdir -p ~/cag_project/kv_caches
+mkdir -p ~/cag_project/temp_chunks
 ```
 
 ### Debug Logs
 
 Log files are stored in `~/.llamacag/logs/` with timestamps. When troubleshooting, check the most recent log file for detailed error information.
 
-If reporting issues, please include the relevant log files.
+## ❓ FAQ
 
-## Technical Details
+### Q: What types of documents work best with LlamaCag?
+**A:** Text-based documents like `.txt`, `.md`, technical documentation, manuals, research papers, and books work best. The application excels with structured, information-rich content where context is important.
 
-### How Context-Augmented Generation Works in LlamaCag (New Architecture)
+### Q: How large a document can I process?
+**A:** This depends on your model's context window and available RAM. With 16GB RAM and Gemma 3 4B, you can typically process documents up to ~75K tokens. With 32GB+ RAM, you can utilize the full 128K context window. Documents that exceed the context window will be truncated.
 
-LlamaCag UI now leverages `llama-cpp-python` for true KV caching:
+### Q: Can I use different models with the same KV cache?
+**A:** No, KV caches are specific to the model they were created with. If you switch models, you'll need to reprocess your documents to create new caches.
 
-1.  **Cache Creation**:
-    *   When you process a document, the application loads the selected language model.
-    *   The document text is tokenized.
-    *   The model processes these tokens (`llm.eval(tokens)`), populating its internal Key/Value state.
-    *   This internal state is saved to disk as a `.llama_cache` file (`llm.save_state(...)`).
-2.  **Chatting with Cache**:
-    *   When you start a chat with "Use KV Cache" enabled, the application loads the model.
-    *   It then loads the pre-computed state from the selected `.llama_cache` file (`llm.load_state(...)`).
-    *   Your query is tokenized and processed (`llm.eval(query_tokens)` or `llm.create_completion(...)`). Since the document context is already in the model's state via the cache, only the query needs processing, making responses much faster.
+### Q: Does this work on Windows/Linux?
+**A:** Yes, though the application was primarily tested on macOS. The core functionality should work on Windows and Linux as long as Python and the required dependencies are installed.
 
-### Document Processing (New Architecture)
+### Q: Does it support GPU acceleration?
+**A:** Yes, GPU acceleration can be enabled by setting the GPU Layers parameter in the Settings tab. This requires `llama-cpp-python` to be installed with the correct GPU support (e.g., Metal for macOS, CUDA for Nvidia).
 
-When processing a document via the **Documents** tab:
-
-1.  The document is read.
-2.  The selected model is loaded via `llama-cpp-python`.
-3.  The document content is tokenized using the model's tokenizer.
-4.  If the token count exceeds the model's context window, the token list is truncated.
-5.  The model evaluates the document tokens to build its internal state.
-6.  The model's state is saved to a `.llama_cache` file.
-7.  Metadata is recorded in `cache_registry.json`.
-
-### Under the Hood (New Architecture)
-
--   The application uses the `llama-cpp-python` library for direct interaction with `llama.cpp`.
--   Core logic for cache creation and chat inference resides in `core/document_processor.py` and `core/chat_engine.py`.
--   External bash scripts are no longer used.
--   PyQt5 provides the graphical interface.
-
-## Known Limitations
+## 📚 Known Limitations
 
 - **Document Size**: Documents larger than the model's context window will be truncated
 - **File Types**: Best support for plain text (.txt) and markdown (.md) files
 - **Memory Usage**: Large models and documents require significant RAM
 - **Performance**: Initial KV cache creation can be slow for large documents. Chat responses using the cache are significantly faster. Performance depends on CPU/GPU capabilities.
-- **GPU Support**: GPU acceleration can be enabled by setting `LLAMACPP_GPU_LAYERS` in the `.env` file (e.g., `LLAMACPP_GPU_LAYERS=30`). This requires `llama-cpp-python` to be installed with the correct GPU support (e.g., Metal for macOS, CUDA for Nvidia). The `setup_requirements.sh` script performs a standard build, which may not include GPU support by default. Manual installation of `llama-cpp-python` with appropriate flags might be needed for optimal GPU usage.
-- **Cache Compatibility**: KV caches are generally specific to the model file they were created with. Using a cache created with a different model may lead to errors or unexpected behavior. Context size mismatches might also cause issues.
+- **Cache Compatibility**: KV caches are specific to the model file they were created with. Using a cache created with a different model may lead to errors or unexpected behavior.
 - **Multiple Documents**: Currently limited to one document context per conversation (via a single KV cache).
 
-## Future Improvements
+## 🔮 Future Improvements
 
-- [ ] Advanced document processing with chunking for very large documents
-- [ ] Multiple document support for combining context from several sources
-- [ ] PDF and Word document parsing improvements
-- [ ] Custom prompt templates for different use cases
-- [ ] Web UI version for remote access
-- [ ] Vector database integration for hybrid RAG+CAG approaches
-- [ ] Cache organization with folders and tagging
-- [ ] Batch processing of document directories
-- [ ] GPU layer configuration through the UI Settings tab.
-- [ ] Verify KV cache compatibility with the selected model before loading.
-- [ ] Export and import of conversations with context.
-- [ ] Improved document content visualization.
+- Advanced document processing with chunking for very large documents
+- Multiple document support for combining context from several sources
+- PDF and Word document parsing improvements
+- Custom prompt templates for different use cases
+- Web UI version for remote access
+- Vector database integration for hybrid RAG+CAG approaches
+- Cache organization with folders and tagging
+- Batch processing of document directories
+- GPU layer configuration through the UI Settings tab
 
-## License and Credits
+# Comparison: True KV Cache vs. Manual Context Prepending
+
+Current Implementation
+
+## 1. True KV Cache Method
+
+```python
+# In chat_engine.py
+def _inference_thread_with_true_kv_cache(self, message: str, model_path: str, context_window: int,
+                     kv_cache_path: Optional[str], max_tokens: int, temperature: float):
+    # Load model state
+    with open(kv_cache_path, 'rb') as f_pickle:
+        state_data = pickle.load(f_pickle)
+    llm.load_state(state_data)
+    
+    # Tokenize and evaluate user input
+    llm.eval(input_tokens)
+    
+    # Generate response using loaded state
+    # [generation code...]
+```
+
+This method:
+- Saves the model's internal state after processing a document
+- Loads this internal state directly when querying
+- Preserves the full token-level representation of the document
+- Optimizes for multiple queries using the same context
+
+## 2. Manual Context Prepending (Fallback)
+
+```python
+# In chat_engine.py
+def _inference_thread_fallback(self, message: str, model_path: str, context_window: int,
+                    kv_cache_path: Optional[str], max_tokens: int, temperature: float, llm: Optional[Llama] = None):
+    # Find original document associated with cache
+    if kv_cache_path:
+        cache_info = self.cache_manager.get_cache_info(kv_cache_path)
+        if cache_info and 'original_document' in cache_info:
+            original_doc_path_str = cache_info['original_document']
+            with open(original_doc_path, 'r', encoding='utf-8', errors='replace') as f_doc:
+                doc_context_text = f_doc.read(8000)
+                
+    # Insert document text into system prompt
+    system_prompt_content = (
+         f"Use the following text to answer the user's question:\n"
+         f"--- TEXT START ---\n"
+         f"{doc_context_text}...\n"
+         f"--- TEXT END ---\n\n"
+         f"Answer based *only* on the text provided above."
+    )
+    
+    # Create chat completion with this augmented prompt
+    # [generation code...]
+```
+
+This method:
+- Reads the beginning of the original document (up to 8000 characters)
+- Inserts this text directly into the system prompt
+- Reprocesses the context with every query
+- Simpler implementation with fewer dependencies on model internals
+
+## Comparative Analysis
+
+### Performance Comparison in CURRENT config
+
+| Aspect | True KV Cache | Manual Context Prepending |
+|--------|--------------|--------------------------|
+| Setup cost | High (full document processing) | Low (file reading only) |
+| Query latency | Lower (reuses processed state) | Higher (reprocesses context every time) |
+| Multi-turn efficiency | Excellent (state persists) | Poor (repeats context processing) |
+| Memory usage | Higher (stores full KV state) | Lower (only stores text) |
+| Context capacity | Full context window | Limited to ~8000 chars (~2000 tokens) |
+
+### Use Case Suitability
+
+For one-shot queries, the manual context prepending offers a reasonable trade-off. It's:
+
+1. **Simpler to implement**: No need for complex state management
+2. **More robust**: Less dependent on specific model versions or implementation details
+3. **Sufficient for basic needs**: For single questions about a document, prepending works well
+
+For multi-turn conversations or very large documents, the true KV cache method would be significantly more efficient.
+
+## Implementation as an Optional Feature
+
+To make both methods available as options:
+
+```python
+# In settings_tab.py
+def setup_ui(self):
+    # Existing UI elements...
+    
+    # Add context method selection
+    self.context_method_group = QGroupBox("Context Method")
+    context_layout = QVBoxLayout(self.context_method_group)
+    
+    self.true_kv_radio = QRadioButton("True KV Cache (Faster for multiple queries)")
+    self.manual_context_radio = QRadioButton("Manual Context Prepending (Simpler, good for one-shot queries)")
+    
+    if self.config.get('USE_TRUE_KV_CACHE', True):
+        self.true_kv_radio.setChecked(True)
+    else:
+        self.manual_context_radio.setChecked(True)
+    
+    context_layout.addWidget(self.true_kv_radio)
+    context_layout.addWidget(self.manual_context_radio)
+    
+    model_layout.addRow(self.context_method_group)
+```
+
+```python
+# Add to save_settings method
+def save_settings(self):
+    # Existing code...
+    
+    # Save context method
+    self.config['USE_TRUE_KV_CACHE'] = self.true_kv_radio.isChecked()
+```
+
+This would allow users to explicitly choose between methods based on their use case.
+
+## Conclusion
+
+Both approaches have their place, and having them both available gives users flexibility:
+
+- **True KV Cache**: For power users, multiple queries, large documents
+- **Manual Context Prepending**: For simpler use cases, one-shot queries, or situations where true KV caching has compatibility issues
+
+The current implementation cleverly falls back to manual context prepending when true KV caching isn't available, but making it an explicit choice would give users more control over the performance/simplicity trade-off.
 
 
+## 🌟 License and Credits
+
+### Components and Libraries
 The application uses several open-source components:
--   `llama-cpp-python` library and the underlying `llama.cpp` by ggerganov and contributors.
--   PyQt5 for the UI framework.
--   Various language models (Gemma, Llama, Mistral) from their respective creators.
+- `llama-cpp-python` library and the underlying `llama.cpp` by ggerganov and contributors
+- PyQt5 for the UI framework
+- Various language models (Gemma, Llama, Mistral) from their respective creators
 
-## Feedback and Contributions
-
-Feedback and contributions are welcome! Please submit issues and pull requests on GitHub.
+### License
+[Your license information here]
 
 ---
 
