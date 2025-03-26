@@ -14,6 +14,7 @@ import json
 import time
 import threading
 import re
+import pickle # Import pickle
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
@@ -160,11 +161,17 @@ class ChatEngine(QObject):
             if kv_cache_path:
                 logging.info(f"Loading KV cache state from: {kv_cache_path}")
                 try:
-                    # TODO: This might fail if cache is incompatible with model settings (e.g., n_ctx)
-                    llm.load_state(kv_cache_path)
-                    logging.info("KV cache loaded successfully.")
+                    # Load the pickled state object
+                    with open(kv_cache_path, 'rb') as f_pickle:
+                        state_data = pickle.load(f_pickle)
+                    # Load the state object into the model
+                    llm.load_state(state_data)
+                    logging.info("KV cache loaded successfully from pickled object.")
+                except pickle.UnpicklingError as e_pickle:
+                    logging.error(f"Failed to unpickle KV cache state: {e_pickle}")
+                    raise RuntimeError(f"Failed to unpickle KV cache: {e_pickle}") from e_pickle
                 except Exception as e:
-                    # Log error but maybe proceed without cache? Or fail? For now, fail.
+                    # Log other errors during loading (e.g., incompatible state)
                     logging.error(f"Failed to load KV cache state: {e}")
                     raise RuntimeError(f"Failed to load KV cache: {e}") from e
             else:
@@ -173,16 +180,56 @@ class ChatEngine(QObject):
                 # but current design implies just asking the question directly.
 
             # --- Prepare Prompt ---
-            # If using KV cache, the prompt is just the new message.
-            # If not using KV cache, the prompt is also just the message (no context).
-            # TODO: Consider adding chat history or a system prompt?
-            # TODO: Use model's chat template if available and not using cache?
-            prompt = message
+            prompt_for_generation = message # Default to just the message
+            if kv_cache_path:
+                logging.info("KV cache is active. Attempting to prepend original document context.")
+                doc_context_text = ""
+                try:
+                    cache_info = self.cache_manager.get_cache_info(kv_cache_path)
+                    if cache_info and 'original_document' in cache_info:
+                        original_doc_path_str = cache_info['original_document']
+                        original_doc_path = Path(original_doc_path_str)
+                        if original_doc_path.exists():
+                            logging.info(f"Reading start of original document: {original_doc_path}")
+                            with open(original_doc_path, 'r', encoding='utf-8', errors='replace') as f_doc:
+                                doc_context_text = f_doc.read(2000) # Read first 2000 chars as context
+                            logging.info(f"Read {len(doc_context_text)} chars from original document.")
+                        else:
+                            logging.warning(f"Original document path not found: {original_doc_path}")
+                    else:
+                        logging.warning(f"Could not find cache info or original document path for cache: {kv_cache_path}")
 
-            # --- Generate Response (Streaming) ---
-            logging.info(f"Generating response (max_tokens={max_tokens}, temp={temperature})...")
+                    if doc_context_text:
+                         # Construct prompt with explicit context + question
+                         prompt_for_generation = (
+                             f"Using the following context:\n\n"
+                             f"{doc_context_text}...\n\n" # Add ellipsis to indicate truncation
+                             f"Answer the question based *only* on the context provided:\n"
+                             f"User: {message}\n"
+                             f"Assistant:"
+                         )
+                         logging.info("Using explicit context prepended prompt structure.")
+                    else:
+                         # Fallback if context couldn't be read - use simpler prompt but still mention context
+                         prompt_for_generation = f"Using the provided context (loaded separately), answer the following question:\n\nUser: {message}\nAssistant:"
+                         logging.warning("Failed to read original document context, using fallback prompt.")
+
+                except Exception as e_ctx:
+                    logging.error(f"Error retrieving or reading original document context: {e_ctx}")
+                    # Fallback prompt if error occurs
+                    prompt_for_generation = f"Using the provided context (loaded separately), answer the following question:\n\nUser: {message}\nAssistant:"
+                    logging.warning("Error during context retrieval, using fallback prompt.")
+
+            else:
+                # If no cache, use the message directly (or potentially a chat template later)
+                logging.info("Using simple prompt structure (no KV cache).")
+
+
+            # --- Generate Response (Streaming using create_completion) ---
+            # Reverted back to create_completion as create_chat_completion didn't help with cache
+            logging.info(f"Generating response using create_completion (max_tokens={max_tokens}, temp={temperature})...")
             stream = llm.create_completion(
-                prompt,
+                prompt=prompt_for_generation, # Use the potentially context-prepended prompt
                 max_tokens=max_tokens,
                 temperature=temperature,
                 stream=True
@@ -191,6 +238,7 @@ class ChatEngine(QObject):
             complete_response = ""
             for chunk in stream:
                 try:
+                    # create_completion streams text directly
                     text = chunk["choices"][0]["text"]
                     if text:
                         self.response_chunk.emit(text)

@@ -41,7 +41,7 @@ class CacheTab(QWidget):
         self.connect_signals()
         
         # Load caches
-        self.refresh_caches()
+        self.refresh_caches_safely()
     
     def setup_ui(self):
         """Set up the user interface"""
@@ -94,7 +94,7 @@ class CacheTab(QWidget):
     def connect_signals(self):
         """Connect signals between components"""
         # Button signals
-        self.refresh_button.clicked.connect(self.refresh_caches)
+        self.refresh_button.clicked.connect(self.refresh_caches_safely)
         self.purge_button.clicked.connect(self.purge_selected_cache)
         self.purge_all_button.clicked.connect(self.purge_all_caches)
         self.use_button.clicked.connect(self.use_selected_cache)
@@ -103,11 +103,11 @@ class CacheTab(QWidget):
         self.cache_table.itemSelectionChanged.connect(self.on_cache_selected)
         
         # Cache manager signals
-        self.cache_manager.cache_list_updated.connect(self.refresh_caches)
+        self.cache_manager.cache_list_updated.connect(self.refresh_caches_safely)
         self.cache_manager.cache_purged.connect(self.on_cache_purged)
 
-    def refresh_caches(self):
-        """Original method name for compatibility with main_window.py"""
+    def refresh_caches_safely(self):
+        """Safely refresh the cache list by rescanning the directory and updating the table"""
         try:
             # First, clear the table to avoid any existing issues
             self.cache_table.setRowCount(0)
@@ -288,5 +288,5 @@ class CacheTab(QWidget):
     def on_cache_purged(self, cache_path: str, success: bool):
         """Handle cache purged signal"""
         if success:
-            self.refresh_caches()
+            self.refresh_caches_safely()
             self.cache_purged.emit()
