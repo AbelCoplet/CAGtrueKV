@@ -1,7 +1,15 @@
-# LlamaCag UI Enhancement Plan
+### Screenshots
+
+![Screenshot 2025-03-25 at 22.42.34](images/Screenshot%202025-03-25%20at%2022.42.34.png)
+![Screenshot 2025-03-25 at 22.42.41](images/Screenshot%202025-03-25%20at%2022.42.41.png)
+![Screenshot 2025-03-25 at 22.42.51](images/Screenshot%202025-03-25%20at%2022.42.51.png)
+![Screenshot 2025-03-25 at 22.42.56](images/Screenshot%202025-03-25%20at%2022.42.56.png)
+![Screenshot 2025-03-25 at 22.43.12](images/Screenshot%202025-03-25%20at%2022.43.12.png)
+
+LlamaCag UI Enhancement Plan
 
 ```markdown
-```
+
 LlamaCagUI/
 ├── main.py                  # Application entry point, initializes all components
 ├── run.sh                   # Script to run the application with correct environment
