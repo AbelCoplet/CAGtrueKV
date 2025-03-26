@@ -158,6 +158,49 @@ class DocumentProcessor(QObject):
             self.processing_complete.emit(document_id, False, f"Processing failed: {str(e)}")
             return False
 
+    def _save_kv_cache_state(self, llm, kv_cache_path: Path) -> bool:
+        """
+        Improved function to save KV cache state using recommended approach.
+        Returns True if successful, False otherwise.
+        """
+        logging.info(f"Saving KV cache state to {kv_cache_path}...")
+
+        # Method 1: Try getting state without arguments first, then pickle
+        try:
+            logging.info("Using save_state() without arguments and pickling...")
+            state_data = llm.save_state()  # Get state data object
+
+            # Verify we got something valid
+            if state_data is None:
+                logging.error("save_state() returned None")
+                return False
+
+            # Save with pickle
+            with open(kv_cache_path, 'wb') as f_pickle:
+                pickle.dump(state_data, f_pickle)
+            logging.info("KV cache state saved successfully via pickle")
+            return True
+        except (AttributeError, pickle.PicklingError) as e:
+            logging.error(f"Error in primary KV cache save method: {e}")
+
+        # Method 2: Try direct path argument as fallback
+        try:
+            logging.info("Trying save_state with direct path argument...")
+            llm.save_state(str(kv_cache_path))
+
+            # Check if file was created
+            if kv_cache_path.exists() and kv_cache_path.stat().st_size > 0:
+                logging.info("KV cache saved successfully with path argument")
+                return True
+            else:
+                logging.error("save_state(path) did not create a valid file")
+        except Exception as e:
+            logging.error(f"Error in fallback KV cache save method: {e}")
+
+        # If we get here, both methods failed
+        logging.error("All KV cache save methods failed")
+        return False
+
     def _process_document_thread(self, document_id: str, document_path: str, model_path: str,
                                kv_cache_path: Path, context_window: int, set_as_master: bool):
         """Thread function for document processing using llama-cpp-python"""
@@ -225,50 +268,19 @@ class DocumentProcessor(QObject):
             logging.info(f"Evaluation complete in {eval_time:.2f} seconds.")
             self.processing_progress.emit(document_id, 90) # Progress update
 
-            # --- Save KV Cache State ---
-            logging.info(f"Saving KV cache state to {kv_cache_path}...")
-            save_successful = False
-            try:
-                print("Attempting llm.save_state(kv_cache_path)...")
-                llm.save_state(kv_cache_path) # Try with Path object first
-                print("KV cache state saved successfully with path argument.") # Corrected indentation
-                save_successful = True # Corrected indentation
-            except TypeError:
-                print("TypeError with save_state(path), attempting save_state() without arguments and pickling...")
-                try:
-                    state_data = llm.save_state() # Try without arguments, capture the state object
-                    # Save the state object using pickle
-                    with open(kv_cache_path, 'wb') as f_pickle:
-                        pickle.dump(state_data, f_pickle)
-                    print("KV cache state object pickled successfully.")
-                    save_successful = True
-                except AttributeError:
-                    # Handle case where save_state() doesn't return a valid object or pickle fails
-                    print("Failed to capture or pickle state object from save_state().")
-                    # Fall through to error handling
-                except pickle.PicklingError as e_pickle:
-                    print(f"Error pickling KV cache state object: {e_pickle}")
-                    # Fall through to error handling
-                except Exception as e_no_args:
-                    # This except block seems duplicated and incorrectly indented, removing the inner one
-                    print(f"Error calling save_state() without arguments or pickling: {e_no_args}")
-                    # Fall through to the error below
-            except Exception as e_path_arg:
-                 print(f"Error calling save_state(path): {e_path_arg}") # Corrected indentation
-                 # Fall through to the error below
+            # --- Save KV Cache State (Using new helper function) ---
+            save_successful = self._save_kv_cache_state(llm, kv_cache_path)
 
             if not save_successful:
-                 # If neither method worked or resulted in a file
-                 error_msg = f"Failed to save KV cache state to {kv_cache_path} using known methods."
-                 logging.error(error_msg)
-                 # Create placeholder to prevent subsequent errors trying to load non-existent cache
-                 with open(kv_cache_path, 'w') as f:
-                     f.write("KV CACHE SAVE FAILED PLACEHOLDER")
-                 print("Created placeholder file due to save failure.")
-                 raise RuntimeError(error_msg)
+                # Create placeholder to prevent subsequent errors
+                with open(kv_cache_path, 'w') as f:
+                    f.write("KV CACHE SAVE FAILED PLACEHOLDER")
+                error_msg = f"Failed to save KV cache state to {kv_cache_path} using known methods."
+                logging.error(error_msg)
+                raise RuntimeError(error_msg)
 
             # --- Continue if save was successful ---
-            logging.info("KV cache state save process completed.") # Renamed log message
+            logging.info("KV cache state saved successfully.") # Log success after helper call
             self.processing_progress.emit(document_id, 95) # Progress update
 
             # --- Update Document Registry ---
@@ -298,7 +310,16 @@ class DocumentProcessor(QObject):
                      # Proceed anyway, but log the warning
 
             # --- Register with Cache Manager ---
-            self.cache_manager.register_cache(document_id, str(kv_cache_path), context_window)
+            # Pass context_size to register_cache
+            self.cache_manager.register_cache(
+                document_id=document_id,
+                cache_path=str(kv_cache_path),
+                context_size=context_window,
+                token_count=token_count,
+                original_file_path=document_path,
+                model_id=self.config.get('CURRENT_MODEL_ID'),
+                is_master=doc_info['is_master'] # Pass final master status
+            )
 
             # --- Notify Completion ---
             self.processing_progress.emit(document_id, 100) # Final progress
@@ -310,7 +331,7 @@ class DocumentProcessor(QObject):
              error_message = f"File not found error processing document {document_id}: {str(e)}"
              logging.error(error_message)
              self.processing_complete.emit(document_id, False, error_message)
-        except RuntimeError as e: # Specific exception for runtime errors (like model load/eval)
+        except RuntimeError as e: # Specific exception for runtime errors (like model load/eval/save)
              error_message = f"Runtime error processing document {document_id}: {str(e)}"
              logging.error(error_message)
              self.processing_complete.emit(document_id, False, error_message)
@@ -321,8 +342,6 @@ class DocumentProcessor(QObject):
         finally:
             # Ensure model is released if loaded
             if llm is not None:
-                 # Assuming llama-cpp-python doesn't have an explicit close/del method needed
-                 # If it does, call it here. Otherwise, Python's garbage collection handles it.
                  logging.debug(f"Model object for {document_id} going out of scope or cleanup if needed.")
                  pass # No explicit cleanup known for Llama object itself
             logging.debug(f"Finished processing thread for {document_id}")
@@ -342,8 +361,7 @@ class DocumentProcessor(QObject):
              return False
 
         kv_cache_path = Path(kv_cache_path_str)
-        # Check if the cache file exists. Removed the read_text check as it's now a binary pickle file.
-        # Loading errors will be handled by the chat_engine when it tries to unpickle.
+        # Check if the cache file exists. Loading errors will be handled by the chat_engine.
         if not kv_cache_path.exists():
             logging.error(f"Cannot set master: KV cache file not found: {kv_cache_path}")
             return False
