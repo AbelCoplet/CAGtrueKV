@@ -48,7 +48,7 @@ class ModelManager(QObject):
             "context_window": 128000,
             "parameters": "4 billion",
             "quantization": "Q4_K_M",
-            "description": "Google's instruction-tuned Gemma 3 with 128K context"
+            "description": "Google's instruction-tuned Gemma 3 with 128K context (Recommended Default)" # Added recommendation
         },
         "gemma-3-4b-it-Q5_K_M": {
             "name": "Gemma 3 4B Instruct (High Quality)",
@@ -140,8 +140,13 @@ class ModelManager(QObject):
             
             # Scan all files in the models directory
             for file in gguf_files:
+                # Filter out non-model gguf files (e.g., vocab files)
+                if file.name.startswith("ggml-vocab-"):
+                    logging.debug(f"Skipping non-model file: {file.name}")
+                    continue
+
                 model_id = self._get_model_id_from_filename(file.name)
-                
+
                 # Get metadata if available in known models
                 metadata = self.KNOWN_MODELS.get(model_id, {})
                 

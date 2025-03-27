@@ -135,7 +135,7 @@ class ChatEngine(QObject):
             daemon=True,
         )
         inference_thread.start()
-        self.status_updated.emit("Generating response...") # Give immediate feedback
+        # Status update will happen inside the thread now
 
         return True
 
@@ -146,6 +146,7 @@ class ChatEngine(QObject):
         llm = None
         try:
             self.response_started.emit()
+            self.status_updated.emit("Loading model...") # Status update
             logging.info(f"True KV cache inference thread started. Model: {model_path}, Cache: {kv_cache_path}")
 
             # --- Configuration ---
@@ -165,9 +166,10 @@ class ChatEngine(QObject):
                 n_threads=threads,
                 n_batch=batch_size,
                 n_gpu_layers=gpu_layers,
-                verbose=False
+                verbose=False # Keep verbose off for cleaner logs
             )
             logging.info("Model loaded.")
+            self.status_updated.emit("Loading KV cache state...") # Status update
 
             # --- Load KV Cache ---
             # This is the core difference: we load the state here.
@@ -178,11 +180,14 @@ class ChatEngine(QObject):
                         state_data = pickle.load(f_pickle)
                     llm.load_state(state_data)
                     logging.info("KV cache state loaded successfully.")
+                    self.status_updated.emit("Generating response...") # Status update
 
                     # --- Tokenize user input with structure ---
-                    prefix_text = "\n\nQuestion: " # Helps delimit the question
+                    # Add explicit instruction to use only loaded context
+                    instruction_prefix = "\n\nBased *only* on the loaded document context, answer the following question:\n"
+                    question_prefix = "Question: "
                     suffix_text = "\n\nAnswer: " # Helps prompt the answer
-                    full_input_text = prefix_text + message + suffix_text
+                    full_input_text = instruction_prefix + question_prefix + message + suffix_text
 
                     input_tokens = llm.tokenize(full_input_text.encode('utf-8'))
                     logging.info(f"Tokenized user input with structure ({len(input_tokens)} tokens)")
@@ -229,6 +234,7 @@ class ChatEngine(QObject):
                     logging.info(f"Generated response with {len(tokens_generated)} tokens using true KV cache.")
 
                     # --- Finalize ---
+                    self.status_updated.emit("Idle") # Status update
                     if response_text.strip():
                         self.history.append({"role": "assistant", "content": response_text})
                         self.response_complete.emit(response_text, True)
@@ -242,6 +248,7 @@ class ChatEngine(QObject):
 
                 except Exception as e:
                     logging.error(f"Error using true KV cache logic: {e}. Falling back to manual context.")
+                    self.status_updated.emit("KV cache error, using fallback...") # Status update
                     # Fall through to the fallback method if any error occurs in the true cache logic
 
             # --- Fallback if no cache path or true cache logic failed ---
@@ -251,11 +258,14 @@ class ChatEngine(QObject):
 
         except Exception as e:
             error_message = f"Error during inference setup or fallback: {str(e)}"
+            self.status_updated.emit("Error") # Status update on error
             logging.exception(error_message)
             self.error_occurred.emit(error_message)
             self.response_complete.emit("", False)
         finally:
             # llm object is managed within the scope, should be released.
+            # Set status to Idle only if no error occurred previously? Or always? Let's always set to Idle.
+            self.status_updated.emit("Idle") # Ensure status returns to Idle
             logging.debug("Inference thread finished.")
 
     # --- Renamed original _inference_thread to be the fallback ---
@@ -266,8 +276,10 @@ class ChatEngine(QObject):
         Can optionally receive a pre-loaded Llama instance.
         """
         try:
+            self.status_updated.emit("Using fallback method...") # Status update
             # If llm wasn't passed, load it (this happens if true cache path was None or initial load failed)
             if llm is None:
+                self.status_updated.emit("Fallback: Loading model...") # Status update
                 logging.info("Fallback: Loading model...")
                 abs_model_path = str(Path(model_path).resolve())
                 if not Path(abs_model_path).exists():
@@ -280,6 +292,7 @@ class ChatEngine(QObject):
                     n_batch=batch_size, n_gpu_layers=gpu_layers, verbose=False
                 )
                 logging.info("Fallback: Model loaded.")
+                self.status_updated.emit("Fallback: Preparing context...") # Status update
 
             # --- Prepare Chat History with Manual Context Prepending ---
             chat_messages = []
@@ -308,13 +321,14 @@ class ChatEngine(QObject):
 
                     if doc_context_text:
                          system_prompt_content = (
-                             f"Use the following text to answer the user's question:\n"
-                             f"--- TEXT START ---\n"
-                             f"{doc_context_text}...\n"
-                             f"--- TEXT END ---\n\n"
-                             f"Answer based *only* on the text provided above."
+                             f"You are an assistant tasked with answering questions based *strictly* and *exclusively* on the following provided text snippet. "
+                             f"Do not use any prior knowledge or information outside of this text. If the answer cannot be found within the text, state that clearly.\n\n"
+                             f"--- TEXT SNIPPET START ---\n"
+                             f"{doc_context_text}...\n" # Indicate snippet might be truncated
+                             f"--- TEXT SNIPPET END ---\n\n"
+                             f"Answer the user's question using *only* the information contained within the text snippet above."
                          )
-                         logging.info("Fallback: Using system prompt with prepended context.")
+                         logging.info("Fallback: Using STRICT system prompt with prepended context.")
                     else:
                          logging.warning("Fallback: Failed to read original document context, using default system prompt.")
                 except Exception as e_ctx:
@@ -333,6 +347,7 @@ class ChatEngine(QObject):
             logging.info(f"Fallback: Prepared chat history with {len(chat_messages)} messages.")
 
             # --- Generate Response (Streaming using create_chat_completion) ---
+            self.status_updated.emit("Fallback: Generating response...") # Status update
             logging.info(f"Fallback: Generating response using create_chat_completion...")
             stream = llm.create_chat_completion(
                 messages=chat_messages,
@@ -355,6 +370,7 @@ class ChatEngine(QObject):
             logging.info("Fallback: Response generation complete.")
 
             # --- Finalize ---
+            self.status_updated.emit("Idle") # Status update
             if complete_response.strip():
                 # Assistant response is added to history by the caller (send_message) if needed
                 self.history.append({"role": "assistant", "content": complete_response}) # Add assistant response here
@@ -367,6 +383,7 @@ class ChatEngine(QObject):
         except Exception as e:
             # Errors specific to the fallback method
             error_message = f"Error during fallback inference: {str(e)}"
+            self.status_updated.emit("Error") # Status update
             logging.exception(error_message)
             self.error_occurred.emit(error_message)
             self.response_complete.emit("", False)

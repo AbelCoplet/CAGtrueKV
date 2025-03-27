@@ -11,7 +11,7 @@ from PyQt5.QtWidgets import (
     QMainWindow, QTabWidget, QVBoxLayout, QHBoxLayout,
     QWidget, QLabel, QStatusBar, QPushButton, QMessageBox
 )
-from PyQt5.QtCore import Qt, QSize, QSettings, QTimer
+from PyQt5.QtCore import Qt, QSize, QSettings, QTimer, pyqtSlot # Added pyqtSlot import
 from core.llama_manager import LlamaManager
 from core.model_manager import ModelManager
 from core.document_processor import DocumentProcessor
@@ -23,6 +23,7 @@ from ui.document_tab import DocumentTab
 from ui.chat_tab import ChatTab
 from ui.cache_tab import CacheTab
 from ui.settings_tab import SettingsTab
+from ui.welcome_dialog import WelcomeDialog # Added import
 from utils.config import ConfigManager
 
 class MainWindow(QMainWindow):
@@ -54,7 +55,10 @@ class MainWindow(QMainWindow):
         
         # Check for updates
         QTimer.singleShot(5000, self.check_updates)
-        
+
+        # Show welcome dialog if needed (after UI setup and settings restore)
+        self.maybe_show_welcome_dialog()
+
     def setup_ui(self):
         """Set up the user interface"""
         # Set window properties
@@ -76,7 +80,8 @@ class MainWindow(QMainWindow):
         
         # Create tabs
         self.model_tab = ModelTab(self.model_manager, self.config_manager)
-        self.document_tab = DocumentTab(self.document_processor, self.model_manager, self.config_manager)
+        # Pass cache_manager to DocumentTab constructor
+        self.document_tab = DocumentTab(self.document_processor, self.model_manager, self.cache_manager, self.config_manager)
         self.chat_tab = ChatTab(self.chat_engine, self.model_manager, self.cache_manager, self.config_manager)
         self.cache_tab = CacheTab(self.cache_manager, self.document_processor, self.config_manager)
         self.settings_tab = SettingsTab(self.config_manager, self.llama_manager, self.n8n_interface, self.model_manager)
@@ -95,14 +100,26 @@ class MainWindow(QMainWindow):
         # Status bar components
         self.status_llama = QLabel("llama.cpp: Checking...")
         self.status_model = QLabel("Model: None")
-        self.status_kv_cache = QLabel("KV Cache: None")
+        self.status_kv_cache = QLabel("KV Cache: None") # Restored
         self.status_n8n = QLabel("n8n: Checking...")
-        
+        self.status_chat_engine = QLabel("Chat Engine: Idle") # Label for chat status
+
+        # Helper function to create separators
+        def create_separator():
+            separator = QLabel(" | ")
+            separator.setStyleSheet("padding-left: 5px; padding-right: 5px;")
+            return separator
+
         self.status_bar.addWidget(self.status_llama)
+        self.status_bar.addWidget(create_separator())
         self.status_bar.addWidget(self.status_model)
-        self.status_bar.addWidget(self.status_kv_cache)
+        self.status_bar.addWidget(create_separator()) # Added separator for KV Cache
+        self.status_bar.addWidget(self.status_kv_cache) # Restored
+        self.status_bar.addWidget(create_separator())
         self.status_bar.addWidget(self.status_n8n)
-        
+        self.status_bar.addWidget(create_separator())
+        self.status_bar.addWidget(self.status_chat_engine)
+
         # Overall status indicator
         self.status_indicator = QPushButton("System Status")
         self.status_indicator.setFlat(True)
@@ -136,8 +153,16 @@ class MainWindow(QMainWindow):
         self.llama_manager.installation_progress.connect(self.on_installation_progress)
         self.llama_manager.installation_complete.connect(self.on_installation_complete)
         
+        # Chat engine status signal
+        self.chat_engine.status_updated.connect(self.on_chat_status_updated)
+        
         # Settings signals
         self.settings_tab.settings_changed.connect(self.on_settings_changed)
+        
+    @pyqtSlot(str) # Slot for chat engine status updates
+    def on_chat_status_updated(self, status: str):
+        """Update the chat engine status label."""
+        self.status_chat_engine.setText(f"Chat Engine: {status}")
         
     def update_status(self):
         """Update status bar information"""
@@ -158,15 +183,17 @@ class MainWindow(QMainWindow):
                 self.status_model.setText(f"Model: {model_id}")
         else:
             self.status_model.setText("Model: None")
-            
-        # KV cache status
+
+        # Calculate cache_count for overall status check
         cache_count = len(self.cache_manager.get_cache_list())
+
+        # KV cache status - Restored general status here
         if cache_count > 0:
             cache_size = self.cache_manager.get_total_cache_size()
             size_str = self.format_size(cache_size)
-            self.status_kv_cache.setText(f"KV Cache: {cache_count} documents ({size_str})")
+            self.status_kv_cache.setText(f"KV Cache: {cache_count} documents ({size_str})") # Restored
         else:
-            self.status_kv_cache.setText("KV Cache: None")
+            self.status_kv_cache.setText("KV Cache: None") # Restored
             
         # N8n status will be updated by the signal handler
         
@@ -319,3 +346,14 @@ class MainWindow(QMainWindow):
             return f"{size_bytes / (1024 * 1024):.1f} MB"
         else:
             return f"{size_bytes / (1024 * 1024 * 1024):.1f} GB"
+
+    def maybe_show_welcome_dialog(self):
+        """Checks settings and shows the welcome dialog if required."""
+        if WelcomeDialog.should_show():
+            # Store reference to prevent garbage collection
+            self.welcome_dialog = WelcomeDialog(self)
+            # Show non-modally
+            self.welcome_dialog.show()
+            # Ensure it's raised to the front and activated
+            self.welcome_dialog.raise_()
+            self.welcome_dialog.activateWindow()

@@ -317,8 +317,8 @@ class ModelTab(QWidget):
         
         # Model info panel
         info_frame = QFrame()
-        info_frame.setFrameShape(QFrame.StyledPanel)
-        info_frame.setStyleSheet("background-color: #f5f9ff;")
+        # info_frame.setFrameShape(QFrame.StyledPanel) # Removed shape
+        # info_frame.setStyleSheet("background-color: #f5f9ff;") # Removed background
         info_layout = QVBoxLayout(info_frame)
         
         self.current_model_label = QLabel("Current Model: None")

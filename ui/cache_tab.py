@@ -51,14 +51,22 @@ class CacheTab(QWidget):
         header.setStyleSheet("font-size: 16px; font-weight: bold;")
         layout.addWidget(header)
 
+        # Explanation label
+        explanation_text = """Select a cache from the list below and click 'Use Selected' to activate it for the Chat tab.
+Status Colors (in Chat Tab): Green = TRUE KV Cache, Orange = Fallback/Master, Gray = Disabled, Red = Missing/Error."""
+        explanation_label = QLabel(explanation_text)
+        explanation_label.setWordWrap(True)
+        explanation_label.setStyleSheet("font-size: 10px; color: #FFFFFF; margin-bottom: 5px;") # White text
+        layout.addWidget(explanation_label)
+
         # Cache table
         self.cache_table = QTableWidget()
         self.cache_table.setColumnCount(3)
         self.cache_table.setHorizontalHeaderLabels([
             "Cache Name", "Size", "Document"
         ])
-        # Stretch last column? Maybe later.
-        # self.cache_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        # Stretch last column to fill space
+        self.cache_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
         layout.addWidget(self.cache_table)
 
         # Button layout
@@ -152,12 +160,15 @@ class CacheTab(QWidget):
                 doc_path_str = cache.get('original_document', 'Unknown')
                 display_doc = doc_path_str if doc_path_str != "Unknown" else cache.get('document_id', 'Unknown')
                 # Optionally shorten long paths
-                # if len(display_doc) > 50: display_doc = "..." + display_doc[-47:]
+                # if len(display_doc) > 50: display_doc = "..." + display_doc[-47:] # Alternative: Tooltip
                 item_doc = QTableWidgetItem(display_doc)
                 item_doc.setFlags(item_doc.flags() & ~Qt.ItemIsEditable)
+                # item_doc.setToolTip(doc_path_str) # Show full path in tooltip
+                # Word wrap is handled by the view, not the item itself for QTableWidget
                 self.cache_table.setItem(i, 2, item_doc)
 
             self.cache_table.resizeColumnsToContents()
+            self.cache_table.setWordWrap(True) # Enable word wrap for the table view
             # Update status
             self.status_label.setText(f"{len(caches)} caches listed.")
             logging.debug("CacheTab: UI refresh complete.")
