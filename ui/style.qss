@@ -1,6 +1,29 @@
 /* 
   LlamaCag UI - Complete Polished Design
-  Final production version with standardized highlights and all refinements
+  
+  LAYOUT OPTIMIZATION NOTES:
+  - The Settings tab uses a side-by-side layout for Model Settings and N8N Integration
+  - This requires the parent layout in settings_tab.py to be a QHBoxLayout for these sections
+  - If adding new sections to Settings tab, consider:
+    1. Adding to existing groups rather than creating new ones to preserve vertical space
+    2. Using a third column if needed (would require CSS adjustments)
+    3. Creating collapsible sections for rarely used settings
+  
+  PATH FIELD NOTES:
+  - Path fields are given expanded width to better utilize horizontal space
+  - If implementing path validation, consider adding visual indicators within the existing space
+  
+  COLOR SCHEME NOTES:
+  - Primary accent: #B030FF (purple)
+  - Success: #00D060 (green)
+  - Warning: #FFC107 (amber)
+  - Error: #FF3D00 (red)
+  - Standard backgrounds use dark gradient from #252536 to #1E1E2A
+  
+  FUTURE EXPANSION NOTES:
+  - For adding new tabs, follow the pattern of existing tabs with header styling
+  - For adding complex controls, wrap them in QGroupBox for consistent styling
+  - Status indicators should use the appropriate colors from the color scheme
 */
 
 /*****************************************************************************
@@ -16,6 +39,12 @@ QWidget {
 
 QMainWindow {
     background-color: #121212;
+}
+
+/* DEFAULT LABEL FIX - Apply transparent backgrounds to all standard labels */
+QLabel {
+    background-color: transparent;
+    padding: 5px 0px;
 }
 
 /*****************************************************************************
@@ -97,6 +126,11 @@ QLabel[text="Settings"] {
     border-left: 3px solid #B030FF; /* Left purple border accent */
 }
 
+/* HIDE REDUNDANT SETTINGS HEADER */
+#settings_tab QLabel[text="Settings"] {
+    display: none; /* Hide the redundant header */
+}
+
 /* Improve framing for all settings text fields */
 QLineEdit, QTextEdit, QPlainTextEdit {
     background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
@@ -117,17 +151,27 @@ QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus {
                                 stop:0 #32324A, stop:0.5 #2D2D40, stop:1 #27273A); /* Slightly lighter when focused */
 }
 
-/* Better framing for form labels */
+/* COMPREHENSIVE FIX FOR ALL FORM LABEL BACKGROUNDS */
 QFormLayout QLabel {
-    min-width: 150px;
-    max-width: 200px;
-    padding: 5px 10px;
-    font-size: 13pt;
-    min-height: 22px;
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 #27273A, stop:1 #1E1E2A); /* Gradient background */
-    border-radius: 4px;
-    border-left: 2px solid #444444; /* Left border for visual distinction */
+    background-color: transparent; /* Override any existing background */
+    color: #FFFFFF; /* Ensure text color is white */
+    min-height: 24px; /* Reduced height for better vertical fit */
+    padding: 2px 8px; /* Reduced vertical padding */
+    margin: 0; /* Remove margin to save vertical space */
+}
+
+/* SETTINGS TAB LAYOUT OPTIMIZATION - SIDE BY SIDE GROUPS */
+/* This assumes the parent layout is already set up to handle side-by-side placement */
+#settings_tab QGroupBox[objectName="model_group"],
+#settings_tab QGroupBox[title="Model Settings"] {
+    max-width: 48%; /* Set to less than 50% to account for margins */
+    margin-right: 5px;
+}
+
+#settings_tab QGroupBox[objectName="n8n_group"],
+#settings_tab QGroupBox[title="n8n Integration"] {
+    max-width: 48%; /* Set to less than 50% to account for margins */
+    margin-left: 5px;
 }
 
 /* Frame all section containers */
@@ -139,9 +183,8 @@ QFrame[objectName="n8n_group"] {
                                 stop:0 #252536, stop:1 #1E1E2A); /* Gradient background */
     border: 1px solid #333333;
     border-radius: 8px;
-    padding: 15px;
-    margin: 5px 0;
-    min-height: 80px;
+    padding: 10px; /* Reduced vertical padding */
+    margin: 3px 0; /* Reduced vertical margin */
 }
 
 /*****************************************************************************
@@ -155,41 +198,52 @@ QLineEdit, QSpinBox, QComboBox {
     color: #FFFFFF;
     border: 1px solid #444444;
     border-radius: 6px;
-    padding: 8px 12px; /* More padding */
-    min-height: 30px; /* Taller minimum height */
+    padding: 6px 10px; /* Reduced vertical padding */
+    min-height: 30px; /* Reduced height */
     font-size: 14pt;
     selection-background-color: #A020F0;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3); /* Subtle shadow effect */
+    margin: 1px 0; /* Minimal margins */
 }
 
-/* Path fields specifically - ensure they have plenty of space and nice styling */
+/* Path fields specifically - FIXED TO HAVE MORE HORIZONTAL SPACE */
 QLineEdit[objectName*="path"] {
-    min-width: 380px;
-    min-height: 35px; /* Even taller for path fields */
-    padding: 5px 12px; /* More padding */
+    min-width: 500px; /* Increased from 380px for more width */
+    min-height: 30px; /* Reduced height for better vertical fit */
+    padding: 4px 8px; /* Reduced padding */
     font-family: "SF Mono", "Consolas", "DejaVu Sans Mono", monospace;
     font-size: 13pt;
     background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                                stop:0 #2A2A36, stop:1 #252531); /* Gradient background */
     border: 1px solid #444444;
     border-radius: 6px;
-    margin: 2px 0; /* Add margin for spacing */
+    margin: 1px 0; /* Minimal vertical margins */
 }
 
-/* Spinboxes (like the Threads, Batch Size, etc.) - fix their black backgrounds */
+/* Settings tab path layout - optimize for vertical/horizontal space */
+#settings_tab QHBoxLayout {
+    spacing: 2px; /* Tighter spacing */
+}
+
+/* Settings path form layout spacing optimization */
+#settings_tab QFormLayout {
+    spacing: 1px; /* Tighter spacing between rows */
+    fieldGrowthPolicy: ExpandingFieldsGrow; /* Allow fields to expand */
+}
+
+/* Spinboxes (like the Threads, Batch Size, etc.) */
 QSpinBox {
     background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                                 stop:0 #2A2A36, stop:1 #252531); /* Gradient background */
     color: #FFFFFF;
     border: 1px solid #444444;
     border-radius: 6px;
-    padding: 8px 12px; /* More padding */
-    padding-right: 30px; /* Space for buttons */
-    min-height: 35px; /* Taller */
-    min-width: 150px; /* Wider */
-    max-width: 200px;
+    padding: 6px 10px; /* Reduced vertical padding */
+    padding-right: 35px; /* Space for buttons */
+    min-height: 30px; /* Reduced height */
+    min-width: 120px; /* Narrower to save space */
+    max-width: 180px;
     font-size: 14pt;
-    margin: 2px 0; /* Add margin for spacing */
+    margin: 1px 0; /* Minimal vertical margins */
 }
 
 QSpinBox:focus {
@@ -204,14 +258,14 @@ QSpinBox::up-button, QSpinBox::down-button {
     background-color: #444444;
     width: 24px; /* Wider buttons */
     border-radius: 3px;
-    margin: 4px; /* More margin */
+    margin: 3px; /* Less margin */
 }
 
 QSpinBox::up-button:hover, QSpinBox::down-button:hover {
     background-color: #A020F0;
 }
 
-/* Fix black backgrounds in status indicator containers */
+/* Status labels that need backgrounds - PROPERLY STYLED */
 QLabel[objectName="cache_status_label"], 
 QLabel[objectName="cache_name_label"],
 QLabel[objectName="cache_effective_status_label"] {
@@ -274,6 +328,7 @@ QTableWidget::item {
     border-radius: 0;
     border-bottom: 1px solid #333344;
     min-height: 35px; /* Taller rows */
+    background-color: transparent; /* Ensure no black backgrounds */
 }
 
 QHeaderView::section {
@@ -330,6 +385,20 @@ QPushButton[text="Use Selected"]:hover {
                                 stop:0 #C040FF, stop:0.5 #B030FF, stop:1 #9030E0);
 }
 
+/* FIX COLOR FOR "REMOVE SELECTED" BUTTON */
+QPushButton[objectName="remove_doc_button"],
+QPushButton[text="Remove Selected"] {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #444444, stop:0.5 #383838, stop:1 #303030); /* Neutral gray */
+    color: #FFFFFF;
+}
+
+QPushButton[objectName="remove_doc_button"]:hover,
+QPushButton[text="Remove Selected"]:hover {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #555555, stop:0.5 #444444, stop:1 #333333);
+}
+
 /* KV Cache status at bottom */
 QLabel[text*="caches listed"] {
     font-size: 13pt;
@@ -339,6 +408,67 @@ QLabel[text*="caches listed"] {
                                 stop:0 #27273A, stop:1 #1E1E2A); /* Gradient background */
     border-radius: 4px;
     margin-top: 5px;
+}
+
+/*****************************************************************************
+* MODEL MANAGEMENT TAB ENHANCEMENTS
+*****************************************************************************/
+
+/* Enhance Model Management header and description */
+#model_tab QLabel:first-child {
+    color: #FFFFFF;
+    font-size: 18pt;
+    font-weight: bold;
+    padding: 8px 15px;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #3C2072, stop:0.5 #2C2052, stop:1 #251A45);
+    border-radius: 6px;
+    margin-top: 5px;
+    margin-bottom: 5px;
+    border-left: 3px solid #B030FF;
+}
+
+#model_tab QLabel[text="Download and select AI models to use with LlamaCag UI."] {
+    font-size: 14pt;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #27273A, stop:1 #1E1E2A);
+    padding: 10px;
+    border-radius: 6px;
+    margin-bottom: 10px;
+    border-left: 2px solid #444444;
+    line-height: 1.4;
+}
+
+/* Enhance the model info panel */
+#model_tab QFrame:not(QTabWidget) {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #252536, stop:1 #1E1E2A);
+    border: 1px solid #333333;
+    border-radius: 6px;
+    padding: 10px;
+    margin: 5px 0;
+}
+
+/* Current model label styling */
+#model_tab QLabel[objectName="current_model_label"] {
+    font-size: 15pt;
+    font-weight: bold;
+    padding: 5px 8px;
+}
+
+/* Model details styling */
+#model_tab QLabel[objectName="model_details_label"] {
+    font-size: 13pt;
+    padding: 3px 8px;
+}
+
+/* Available models label */
+#model_tab QLabel[text="Available Models:"] {
+    font-size: 15pt;
+    font-weight: bold;
+    padding: 5px 8px;
+    margin-top: 10px;
+    background: transparent;
 }
 
 /*****************************************************************************
@@ -397,36 +527,38 @@ QPushButton:pressed {
 }
 
 /* Frame save/reset buttons better */
-QPushButton#save_settings_button {
+QPushButton#save_settings_button,
+QPushButton[text="Save Settings"] {
     background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                                 stop:0 #B030FF, stop:0.5 #A020F0, stop:1 #8020D0);
-    padding: 12px 20px;
+    padding: 10px 20px; /* Slightly reduced vertical padding */
     font-size: 15pt;
     min-width: 180px;
-    margin: 8px 3px;
+    margin: 5px 3px; /* Reduced top/bottom margin */
 }
 
-QPushButton#reset_button {
+QPushButton#reset_button,
+QPushButton[text="Reset to Defaults"] {
     background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                                 stop:0 #666666, stop:0.5 #555555, stop:1 #444444);
-    padding: 12px 20px;
+    padding: 10px 20px; /* Slightly reduced vertical padding */
     font-size: 15pt;
     min-width: 180px;
-    margin: 8px 3px;
+    margin: 5px 3px; /* Reduced top/bottom margin */
 }
 
 /* Improve n8n interface elements */
 QPushButton[objectName="n8n_start_button"] {
     background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                                 stop:0 #00E070, stop:0.5 #00D060, stop:1 #00B050);
-    min-height: 35px;
+    min-height: 30px; /* Reduced from 35px */
     font-size: 14pt;
 }
 
 QPushButton[objectName="n8n_stop_button"] {
     background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                                 stop:0 #FF5D20, stop:0.5 #FF4D10, stop:1 #FF3D00);
-    min-height: 35px;
+    min-height: 30px; /* Reduced from 35px */
     font-size: 14pt;
 }
 
@@ -465,7 +597,7 @@ QLabel[objectName="update_status_label"] {
 /* Version label with proper framing */
 QLabel[objectName="llama_version_label"],
 QLabel[objectName="version_label"] {
-    min-height: 30px;
+    min-height: 28px; /* Reduced height */
     font-size: 14pt;
     background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                                 stop:0 #27273A, stop:1 #1E1E2A); /* Gradient background */
@@ -488,6 +620,7 @@ QListWidget::item {
     border-radius: 4px;
     min-height: 30px;
     margin: 2px 0;
+    background-color: transparent; /* Ensure item backgrounds are transparent unless selected */
 }
 
 /* Progress bar with better styling */
@@ -509,17 +642,17 @@ QProgressBar::chunk {
     border-radius: 3px;
 }
 
-/* Better framing for browse buttons */
+/* Better framing for browse buttons - OPTIMIZED FOR VERTICAL SPACE */
 QPushButton[objectName*="browse"],
 QPushButton[text="Browse..."] {
     background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                                 stop:0 #555555, stop:0.5 #444444, stop:1 #333333);
-    min-width: 100px; /* Wider buttons */
-    max-width: 100px;
-    min-height: 35px; /* Taller */
-    padding: 5px;
+    min-width: 80px; /* Narrower to save space */
+    max-width: 80px;
+    min-height: 30px; /* Shorter for better vertical fit */
+    padding: 3px;
     font-size: 13pt;
-    margin-left: 5px;
+    margin-left: 3px; /* Less left margin */
 }
 
 QPushButton[objectName*="browse"]:hover,
@@ -533,7 +666,7 @@ QLabel[text="Ready"] {
     font-size: 13pt;
     color: #AAAAAA;
     padding: 5px 10px;
-    margin-bottom: 10px; /* Add bottom margin to prevent overlap */
+    margin-bottom: 5px; /* Reduced margin */
     background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                                 stop:0 #27273A, stop:1 #1E1E2A); /* Gradient background */
     border-radius: 4px;
@@ -781,6 +914,7 @@ QCheckBox {
     spacing: 8px;
     min-height: 22px;
     font-size: 14pt;
+    background-color: transparent; /* Ensure transparent backgrounds */
 }
 
 QCheckBox::indicator {
@@ -800,7 +934,7 @@ QComboBox {
     border-radius: 5px;
     padding: 8px 10px;
     padding-right: 25px;
-    min-height: 35px; /* Taller */
+    min-height: 30px; /* Reduced for better vertical fit */
     color: #FFFFFF;
     font-size: 14pt;
 }
@@ -818,8 +952,8 @@ QGroupBox {
     border: 1px solid #333333;
     border-bottom: 2px solid #222222; /* Subtle shadow */
     border-radius: 6px;
-    margin-top: 16px;
-    padding: 15px;
+    margin-top: 10px; /* Reduced from 16px */
+    padding: 10px; /* Reduced from 15px */
     font-size: 14pt;
 }
 
@@ -877,5 +1011,66 @@ QLabel[objectName="kv_cache_status_label"] {
                                 stop:0 #27273A, stop:1 #1E1E2A); /* Gradient background */
     color: #FFFFFF;
     border-radius: 5px;
-    padding: 5px 10px;
+    padding: 8px 10px;
+}
+
+/* ADDITIONAL FIXES FOR ALL POTENTIAL BLACK BACKGROUNDS */
+
+/* Fix for document info labels */
+#document_tab QLabel[objectName*="label"] {
+    background-color: transparent;
+    min-height: 24px; /* Reduced height */
+    padding: 2px 8px;
+}
+
+/* Fix for thread controls in settings/GUI */
+QLabel[text*="threads"],
+QLabel[text*="Threads"],
+QLabel[text*="batch"],
+QLabel[text*="Batch"],
+QLabel[text*="gpu"],
+QLabel[text*="GPU"] {
+    background-color: transparent;
+    min-height: 24px; /* Reduced height */
+    padding: 2px 8px;
+}
+
+/* Fix for settings tab specific labels */
+#settings_tab QLabel {
+    background-color: transparent;
+}
+
+/* Fix for model info in Model tab */
+#model_tab QLabel[objectName*="label"],
+#model_tab QFrame QLabel {
+    background-color: transparent;
+    padding: 2px 8px;
+}
+
+/* Target grid layouts in settings tab */
+QGridLayout QLabel {
+    background-color: transparent;
+    min-height: 24px; /* Reduced height */
+    padding: 2px 8px;
+}
+
+/* Fix any remaining form labels in all tabs */
+#document_tab QFormLayout QLabel,
+#chat_tab QFormLayout QLabel,
+#cache_tab QFormLayout QLabel,
+#settings_tab QFormLayout QLabel,
+#model_tab QFormLayout QLabel {
+    background-color: transparent;
+    min-height: 24px; /* Reduced height */
+    padding: 2px 8px;
+}
+
+/* Ensure document info labels have transparent background */
+QLabel[objectName="doc_name_label"],
+QLabel[objectName="file_size_label"],
+QLabel[objectName="token_count_label"],
+QLabel[objectName="context_fit_label"] {
+    background-color: transparent;
+    min-height: 24px; /* Reduced height */
+    padding: 2px 8px;
 }
