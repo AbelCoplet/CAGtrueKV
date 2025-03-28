@@ -1,6 +1,6 @@
 /* 
-  LlamaCag UI - Professional Purple Design
-  Fixes text sizing issues and adds beautiful gradients
+  LlamaCag UI - Complete Polished Design
+  Final production version with standardized highlights and all refinements
 */
 
 /*****************************************************************************
@@ -11,7 +11,7 @@ QWidget {
     background-color: #121212; 
     color: #FFFFFF;
     font-family: "SF Pro Display", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
-    font-size: 14pt; /* Base font size */
+    font-size: 14pt;
 }
 
 QMainWindow {
@@ -19,185 +19,63 @@ QMainWindow {
 }
 
 /*****************************************************************************
-* LAYOUT FIXES AND SPACING
+* STATUS BAR FIXES
 *****************************************************************************/
 
-/* Form layouts - ensure proper spacing */
-QFormLayout {
-    margin-top: 5px;
-    margin-bottom: 5px;
-    spacing: 12px; /* Space between rows */
-}
-
-/* Force text labels to properly size */
-QLabel {
-    min-height: 25px;
-    margin: 0;
-    padding: 2px 5px; /* Small padding to prevent text being cut off */
-    background-color: transparent;
-}
-
-/* Settings tab specific spacing */
-#settings_tab QGridLayout {
-    margin: 5px;
-    spacing: 15px;
-}
-
-#settings_tab QVBoxLayout {
-    margin: 5px;
-    spacing: 15px;
-}
-
-/* Field layout for settings rows */
-QFormLayout QLabel {
-    min-width: 200px; /* Force labels to have enough space */
-    max-width: 250px;
-    padding-right: 15px;
-    font-size: 14pt;
-}
-
-/* Ensure enough space for form fields */
-QLineEdit, QSpinBox, QComboBox {
-    min-width: 300px; /* Ensure input fields are wide enough */
-    min-height: 35px; /* Make sure they're tall enough */
-}
-
-/* Make sure settings labels don't get squished */
-QLabel[objectName*="label"] {
-    min-height: 30px;
-    padding: 5px 0;
-}
-
-/*****************************************************************************
-* GRADIENTS & VISUAL STYLING
-*****************************************************************************/
-
-/* Tab Widget with gradient tabs */
-QTabWidget::pane {
-    border: 1px solid #333333;
-    background-color: #121212;
-    border-radius: 5px;
-    padding: 5px;
-}
-
-QTabBar::tab {
+/* Taller status bar with proper separation */
+QStatusBar {
     background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 #353535, stop:1 #252525);
+                                stop:0 #252525, stop:1 #1A1A1A);
     color: #CCCCCC;
-    padding: 12px 20px;
-    margin-right: 2px;
-    border-top-left-radius: 6px;
-    border-top-right-radius: 6px;
-    min-width: 140px;
-    min-height: 25px;
-    font-size: 14pt;
+    min-height: 40px; /* Taller status bar */
+    border-top: 1px solid #333333;
+    padding-bottom: 8px; /* Extra padding at bottom to prevent overlap */
 }
 
-QTabBar::tab:selected {
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 #A020F0, stop:1 #7020A0);
-    color: #FFFFFF;
-    font-weight: bold;
-}
-
-QTabBar::tab:hover:!selected {
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 #454545, stop:1 #353535);
-}
-
-/* Gradient buttons */
-QPushButton {
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 #A020F0, stop:1 #7020A0);
-    color: #FFFFFF;
+QStatusBar::item {
     border: none;
-    border-radius: 6px;
-    padding: 12px 20px;
-    min-height: 25px;
-    min-width: 100px;
-    font-size: 14pt;
-    font-weight: bold;
-    margin: 2px;
+    border-right: 1px solid #333333; /* Visual separator between items */
+    margin-right: 5px;
 }
 
-QPushButton:hover {
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 #B030FF, stop:1 #8030B0);
+QStatusBar QLabel {
+    background-color: transparent;
+    padding: 4px 15px;
+    color: #CCCCCC;
+    font-size: 13pt;
 }
 
-QPushButton:pressed {
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 #7010C0, stop:1 #5010A0);
-}
-
-QPushButton:disabled {
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 #555555, stop:1 #444444);
-    color: #888888;
-}
-
-/* Save/Reset buttons - larger with gradient */
-QPushButton#save_settings_button {
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 #A020F0, stop:1 #7020A0);
-    padding: 15px 25px;
-    font-size: 16pt;
-    min-width: 200px;
-}
-
-QPushButton#reset_button {
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 #666666, stop:1 #444444);
-    padding: 15px 25px;
-    font-size: 16pt;
-    min-width: 200px;
-}
-
-/* Status indicator with gradient */
+/* Fix "All Systems Go" button overlap */
 QPushButton#statusIndicator {
     border-radius: 6px;
-    padding: 8px 15px;
+    padding: 6px 15px;
     font-weight: bold;
-    min-height: 25px;
-    min-width: 150px;
+    min-height: 30px; /* Taller button */
+    min-width: 160px;
     font-size: 14pt;
+    margin: 5px 15px; /* Add margins all around */
 }
 
 QPushButton[status="ok"] {
     background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 #00D863, stop:1 #00B853);
+                                stop:0 #00E070, stop:0.5 #00D060, stop:1 #00B050);
 }
 
 QPushButton[status="warning"] {
     background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 #FFD117, stop:1 #FFA107);
+                                stop:0 #FFD117, stop:0.5 #FFC107, stop:1 #FFA000);
 }
 
 QPushButton[status="error"] {
     background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 #FF4D10, stop:1 #FF2D00);
+                                stop:0 #FF5D20, stop:0.5 #FF4D10, stop:1 #FF3D00);
 }
 
-/* Group boxes with slightly better borders */
-QGroupBox {
-    background-color: #1A1A1A;
-    border: 1px solid #333333;
-    border-radius: 6px;
-    margin-top: 20px; /* Space for title */
-    padding: 15px;
-}
+/*****************************************************************************
+* TEXT FRAMING IMPROVEMENTS
+*****************************************************************************/
 
-QGroupBox::title {
-    subcontrol-origin: margin;
-    subcontrol-position: top left;
-    padding: 0 10px;
-    left: 10px;
-    color: #A020F0;
-    font-size: 16pt;
-    font-weight: bold;
-}
-
-/* Section titles */
+/* Add frames around section titles */
 QLabel[objectName="llama_cpp_title"],
 QLabel[objectName="paths_title"],
 QLabel[objectName="model_settings_title"],
@@ -207,209 +85,475 @@ QLabel[text="Paths"],
 QLabel[text="Model Settings"],
 QLabel[text="n8n Integration"],
 QLabel[text="Settings"] {
-    color: #A020F0;
-    font-size: 18pt;
+    color: #FFFFFF; /* White text */
+    font-size: 16pt;
     font-weight: bold;
-    padding: 5px 0;
+    padding: 8px 15px; /* More padding */
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #3C2072, stop:0.5 #2C2052, stop:1 #251A45); /* Gradient background */
+    border-radius: 6px;
+    margin-top: 5px;
+    margin-bottom: 5px;
+    border-left: 3px solid #B030FF; /* Left purple border accent */
+}
+
+/* Improve framing for all settings text fields */
+QLineEdit, QTextEdit, QPlainTextEdit {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #2A2A36, stop:1 #252531); /* Gradient background instead of flat black */
+    color: #FFFFFF;
+    border: 1px solid #444444;
+    border-radius: 5px;
+    padding: 8px 10px;
+    min-height: 22px;
+    font-size: 14pt;
+    selection-background-color: #A020F0;
+}
+
+QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus {
+    border: 1px solid #B030FF;
+    border-bottom: 2px solid #A020F0; /* Subtle bottom border for focus */
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #32324A, stop:0.5 #2D2D40, stop:1 #27273A); /* Slightly lighter when focused */
+}
+
+/* Better framing for form labels */
+QFormLayout QLabel {
+    min-width: 150px;
+    max-width: 200px;
+    padding: 5px 10px;
+    font-size: 13pt;
+    min-height: 22px;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #27273A, stop:1 #1E1E2A); /* Gradient background */
+    border-radius: 4px;
+    border-left: 2px solid #444444; /* Left border for visual distinction */
+}
+
+/* Frame all section containers */
+QFrame[objectName="llama_group"],
+QFrame[objectName="paths_group"],
+QFrame[objectName="model_group"],
+QFrame[objectName="n8n_group"] {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #252536, stop:1 #1E1E2A); /* Gradient background */
+    border: 1px solid #333333;
+    border-radius: 8px;
+    padding: 15px;
+    margin: 5px 0;
+    min-height: 80px;
 }
 
 /*****************************************************************************
-* FORM CONTROLS WITH PROPER SIZING
+* BUBBLE EFFECT FOR TEXT FIELDS
 *****************************************************************************/
 
-/* Text input with gradient focus */
-QLineEdit {
-    background-color: #252525;
+/* Fix text fields that had black backgrounds in screenshot */
+QLineEdit, QSpinBox, QComboBox {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #2A2A36, stop:1 #252531); /* Gradient background */
     color: #FFFFFF;
     border: 1px solid #444444;
-    border-radius: 4px;
-    padding: 10px;
-    min-height: 25px;
+    border-radius: 6px;
+    padding: 8px 12px; /* More padding */
+    min-height: 30px; /* Taller minimum height */
     font-size: 14pt;
     selection-background-color: #A020F0;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3); /* Subtle shadow effect */
 }
 
-QLineEdit:focus {
-    border: 1px solid #A020F0;
-    background-color: #303030;
-}
-
-/* Dropdown with proper sizing */
-QComboBox {
-    background-color: #252525;
+/* Path fields specifically - ensure they have plenty of space and nice styling */
+QLineEdit[objectName*="path"] {
+    min-width: 380px;
+    min-height: 35px; /* Even taller for path fields */
+    padding: 5px 12px; /* More padding */
+    font-family: "SF Mono", "Consolas", "DejaVu Sans Mono", monospace;
+    font-size: 13pt;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                               stop:0 #2A2A36, stop:1 #252531); /* Gradient background */
     border: 1px solid #444444;
-    border-radius: 4px;
-    padding: 10px;
-    padding-right: 20px;
-    min-height: 25px;
-    color: #FFFFFF;
-    font-size: 14pt;
+    border-radius: 6px;
+    margin: 2px 0; /* Add margin for spacing */
 }
 
-QComboBox:on {
-    border: 1px solid #A020F0;
-}
-
-QComboBox::drop-down {
-    border: none;
-    width: 30px;
-    background-color: #444444;
-    border-top-right-radius: 4px;
-    border-bottom-right-radius: 4px;
-}
-
-QComboBox::down-arrow {
-    width: 15px;
-    height: 15px;
-}
-
-QComboBox QAbstractItemView {
-    background-color: #252525;
-    border: 1px solid #444444;
-    selection-background-color: #A020F0;
-    selection-color: #FFFFFF;
-    color: #FFFFFF;
-    padding: 4px;
-    font-size: 14pt;
-}
-
-/* Spinbox with better sizing */
+/* Spinboxes (like the Threads, Batch Size, etc.) - fix their black backgrounds */
 QSpinBox {
-    background-color: #252525;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #2A2A36, stop:1 #252531); /* Gradient background */
     color: #FFFFFF;
     border: 1px solid #444444;
-    border-radius: 4px;
-    padding: 10px;
-    padding-right: 30px;
-    min-height: 25px;
+    border-radius: 6px;
+    padding: 8px 12px; /* More padding */
+    padding-right: 30px; /* Space for buttons */
+    min-height: 35px; /* Taller */
+    min-width: 150px; /* Wider */
+    max-width: 200px;
     font-size: 14pt;
+    margin: 2px 0; /* Add margin for spacing */
 }
 
 QSpinBox:focus {
-    border: 1px solid #A020F0;
+    border: 1px solid #B030FF;
+    border-bottom: 2px solid #A020F0; /* Subtle bottom border for focus */
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #32324A, stop:0.5 #2D2D40, stop:1 #27273A); /* Slightly lighter when focused */
 }
 
+/* Spinbox buttons */
 QSpinBox::up-button, QSpinBox::down-button {
     background-color: #444444;
-    width: 25px;
-    border-radius: 2px;
-    margin: 2px;
+    width: 24px; /* Wider buttons */
+    border-radius: 3px;
+    margin: 4px; /* More margin */
 }
 
 QSpinBox::up-button:hover, QSpinBox::down-button:hover {
     background-color: #A020F0;
 }
 
-QSpinBox::up-arrow, QSpinBox::down-arrow {
-    width: 12px;
-    height: 12px;
+/* Fix black backgrounds in status indicator containers */
+QLabel[objectName="cache_status_label"], 
+QLabel[objectName="cache_name_label"],
+QLabel[objectName="cache_effective_status_label"] {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #27273A, stop:1 #1E1E2A); /* Gradient background */
+    color: #FFFFFF;
+    border-radius: 5px;
+    padding: 5px 10px;
+    font-size: 13pt;
+    border-left: 2px solid #444444; /* Left border for visual distinction */
 }
 
-/* Checkbox with proper sizing */
-QCheckBox {
-    spacing: 10px;
+/*****************************************************************************
+* KV CACHE MONITOR ENHANCEMENTS
+*****************************************************************************/
+
+/* KV Cache Monitor title */
+QLabel[text="KV Cache Management"] {
+    color: #FFFFFF;
+    font-size: 18pt;
+    font-weight: bold;
+    padding: 8px 15px;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #3C2072, stop:0.5 #2C2052, stop:1 #251A45); /* Gradient background */
+    border-radius: 6px;
+    margin-top: 5px;
+    margin-bottom: 10px;
+    border-left: 3px solid #B030FF;
+}
+
+/* KV Cache Monitor explanation text */
+QLabel[text*="Select a cache"] {
+    font-size: 13pt;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #27273A, stop:1 #1E1E2A); /* Gradient background */
+    padding: 10px;
+    border-radius: 6px;
+    margin-bottom: 10px;
+    border-left: 2px solid #444444;
+    line-height: 1.4;
+}
+
+/* KV Cache Monitor table improvements */
+QTableWidget {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #252536, stop:1 #1E1E2A); /* Gradient background */
+    alternate-background-color: #252536;
+    color: #FFFFFF;
+    gridline-color: #333344;
+    border: 1px solid #333344;
+    border-radius: 6px;
+    padding: 5px;
+    font-size: 14pt;
+    selection-background-color: #A020F0;
+    selection-color: #FFFFFF;
+}
+
+QTableWidget::item {
+    padding: 8px;
+    border-radius: 0;
+    border-bottom: 1px solid #333344;
+    min-height: 35px; /* Taller rows */
+}
+
+QHeaderView::section {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #3A3A4A, stop:1 #2A2A3A);
+    color: #FFFFFF;
+    padding: 10px;
+    border: 1px solid #444455;
+    font-weight: bold;
+    font-size: 14pt;
+}
+
+/* KV Cache Monitor buttons */
+#cache_tab QPushButton {
+    font-size: 14pt;
+    min-height: 35px;
+    margin: 5px;
+}
+
+/* Make the destructive buttons stand out */
+QPushButton[objectName="purge_button"],
+QPushButton[objectName="purge_all_button"],
+QPushButton[text="Purge Selected"],
+QPushButton[text="Purge All"] {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #FF5D20, stop:0.5 #FF4D10, stop:1 #FF3D00);
+}
+
+QPushButton[objectName="purge_button"]:hover,
+QPushButton[objectName="purge_all_button"]:hover,
+QPushButton[text="Purge Selected"]:hover,
+QPushButton[text="Purge All"]:hover {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #FF6D30, stop:0.5 #FF5D20, stop:1 #FF4D10);
+}
+
+/* "Purge All" specifically in darker red */
+QPushButton[text="Purge All"] {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #FF3D00, stop:0.5 #E03000, stop:1 #D02000);
+    color: #FFFFFF;
+}
+
+/* "Use Selected" in a distinct color */
+QPushButton[objectName="use_button"],
+QPushButton[text="Use Selected"] {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #B030FF, stop:0.5 #A020F0, stop:1 #8020D0);
+}
+
+QPushButton[objectName="use_button"]:hover,
+QPushButton[text="Use Selected"]:hover {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #C040FF, stop:0.5 #B030FF, stop:1 #9030E0);
+}
+
+/* KV Cache status at bottom */
+QLabel[text*="caches listed"] {
+    font-size: 13pt;
+    color: #CCCCCC;
+    padding: 5px;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #27273A, stop:1 #1E1E2A); /* Gradient background */
+    border-radius: 4px;
+    margin-top: 5px;
+}
+
+/*****************************************************************************
+* ENHANCED UI ELEMENTS
+*****************************************************************************/
+
+/* Tab styling with more prominence */
+QTabBar::tab {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #353535, stop:1 #252525);
+    color: #CCCCCC;
+    padding: 12px 24px;
+    margin-right: 2px;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    min-width: 140px;
     min-height: 25px;
     font-size: 14pt;
 }
 
-QCheckBox::indicator {
-    width: 20px;
-    height: 20px;
-    border-radius: 3px;
+QTabBar::tab:selected {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #B030FF, stop:0.5 #A020F0, stop:1 #8020D0);
+    color: #FFFFFF;
+    font-weight: bold;
+}
+
+QTabBar::tab:hover:!selected {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #454545, stop:1 #353535);
+}
+
+/* More refined button styling */
+QPushButton {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #B030FF, stop:0.5 #A020F0, stop:1 #8020D0);
+    color: #FFFFFF;
+    border: none;
+    border-radius: 6px;
+    padding: 10px 16px;
+    min-height: 25px;
+    min-width: 100px;
+    font-size: 14pt;
+    font-weight: bold;
+    margin: 3px;
+}
+
+QPushButton:hover {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #C040FF, stop:0.5 #B030FF, stop:1 #9030E0);
+}
+
+QPushButton:pressed {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #7010C0, stop:0.5 #6010B0, stop:1 #5010A0);
+}
+
+/* Frame save/reset buttons better */
+QPushButton#save_settings_button {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #B030FF, stop:0.5 #A020F0, stop:1 #8020D0);
+    padding: 12px 20px;
+    font-size: 15pt;
+    min-width: 180px;
+    margin: 8px 3px;
+}
+
+QPushButton#reset_button {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #666666, stop:0.5 #555555, stop:1 #444444);
+    padding: 12px 20px;
+    font-size: 15pt;
+    min-width: 180px;
+    margin: 8px 3px;
+}
+
+/* Improve n8n interface elements */
+QPushButton[objectName="n8n_start_button"] {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #00E070, stop:0.5 #00D060, stop:1 #00B050);
+    min-height: 35px;
+    font-size: 14pt;
+}
+
+QPushButton[objectName="n8n_stop_button"] {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #FF5D20, stop:0.5 #FF4D10, stop:1 #FF3D00);
+    min-height: 35px;
+    font-size: 14pt;
+}
+
+/* Status labels in settings */
+QLabel[objectName="n8n_status_label"] {
+    font-size: 14pt;
+    font-weight: bold;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #27273A, stop:1 #1E1E2A); /* Gradient background */
+    padding: 5px 10px;
+    border-radius: 4px;
+    min-height: 25px;
+}
+
+QLabel[objectName="n8n_status_label"][text*="Running"] {
+    color: #00D060;
+    border-left: 3px solid #00D060;
+}
+
+QLabel[objectName="n8n_status_label"][text*="Stopped"] {
+    color: #FF4D10;
+    border-left: 3px solid #FF4D10;
+}
+
+QLabel[objectName="update_status_label"] {
+    color: #00D060;
+    font-size: 14pt;
+    font-weight: bold;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #27273A, stop:1 #1E1E2A); /* Gradient background */
+    padding: 5px 10px;
+    border-radius: 4px;
+    border-left: 3px solid #00D060;
+}
+
+/* Version label with proper framing */
+QLabel[objectName="llama_version_label"],
+QLabel[objectName="version_label"] {
+    min-height: 30px;
+    font-size: 14pt;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #27273A, stop:1 #1E1E2A); /* Gradient background */
+    padding: 5px 10px;
+    border-radius: 4px;
+}
+
+/* Border around document preview elements */
+QListWidget {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #252536, stop:1 #1E1E2A); /* Gradient background */
+    border: 1px solid #333344;
+    border-radius: 6px;
+    padding: 8px;
+    font-size: 14pt;
+}
+
+QListWidget::item {
+    padding: 8px;
+    border-radius: 4px;
+    min-height: 30px;
+    margin: 2px 0;
+}
+
+/* Progress bar with better styling */
+QProgressBar {
     border: 1px solid #444444;
-    background-color: #252525;
+    border-radius: 4px;
+    text-align: center;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #252536, stop:1 #1E1E2A); /* Gradient background */
+    color: #FFFFFF;
+    min-height: 22px;
+    font-size: 13pt;
+    font-weight: bold;
 }
 
-QCheckBox::indicator:checked {
-    background-color: #A020F0;
-    border: 1px solid #A020F0;
+QProgressBar::chunk {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                stop:0 #A020F0, stop:0.5 #B030FF, stop:1 #C040FF);
+    border-radius: 3px;
 }
 
-QCheckBox::indicator:unchecked:hover {
-    border: 1px solid #A020F0;
-}
-
-/*****************************************************************************
-* SPECIFIC UI COMPONENTS
-*****************************************************************************/
-
-/* Browse buttons with different style */
+/* Better framing for browse buttons */
 QPushButton[objectName*="browse"],
 QPushButton[text="Browse..."] {
     background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 #555555, stop:1 #3A3A3A);
-    min-width: 100px;
+                                stop:0 #555555, stop:0.5 #444444, stop:1 #333333);
+    min-width: 100px; /* Wider buttons */
     max-width: 100px;
-    padding: 10px;
+    min-height: 35px; /* Taller */
+    padding: 5px;
+    font-size: 13pt;
+    margin-left: 5px;
 }
 
 QPushButton[objectName*="browse"]:hover,
 QPushButton[text="Browse..."]:hover {
     background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 #666666, stop:1 #4A4A4A);
+                                stop:0 #666666, stop:0.5 #555555, stop:1 #444444);
 }
 
-/* Status bar */
-QStatusBar {
-    background-color: #1A1A1A;
-    color: #CCCCCC;
-    min-height: 30px;
-    border-top: 1px solid #333333;
-}
-
-QStatusBar::item {
-    border: none;
-}
-
-QStatusBar QLabel {
-    font-size: 12pt;
-    padding: 0 10px;
-    color: #CCCCCC;
-}
-
-/* Status labels with appropriate colors */
-QLabel[objectName="update_status_label"] {
-    color: #00C853;
-    font-size: 14pt;
-    font-weight: bold;
-}
-
-QLabel[objectName="n8n_status_label"] {
-    font-size: 14pt;
-    font-weight: bold;
+/* Additional spacing for the ready status */
+QLabel[text="Ready"] {
+    font-size: 13pt;
+    color: #AAAAAA;
     padding: 5px 10px;
+    margin-bottom: 10px; /* Add bottom margin to prevent overlap */
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #27273A, stop:1 #1E1E2A); /* Gradient background */
     border-radius: 4px;
 }
 
-QLabel[objectName="n8n_status_label"][text*="Running"] {
-    color: #00C853;
-}
-
-QLabel[objectName="n8n_status_label"][text*="Stopped"] {
-    color: #FF3D00;
-}
-
-/* Progress bar with gradient fill */
-QProgressBar {
-    border: 1px solid #444444;
-    border-radius: 4px;
-    text-align: center;
+/* More prominent tooltip */
+QToolTip {
     background-color: #252525;
     color: #FFFFFF;
-    min-height: 25px;
-    font-size: 14pt;
+    border: 1px solid #B030FF;
+    border-bottom: 2px solid #A020F0;
+    padding: 10px;
+    border-radius: 5px;
+    font-size: 13pt;
 }
 
-QProgressBar::chunk {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                                stop:0 #A020F0, stop:1 #C040FF);
-    border-radius: 3px;
-}
-
-/* Scrollbars with gradients */
+/* Scrollbars with better visibility */
 QScrollBar:vertical {
     border: none;
-    background-color: #252525;
+    background-color: #1E1E24;
     width: 14px;
     margin: 0;
     border-radius: 7px;
@@ -417,14 +561,14 @@ QScrollBar:vertical {
 
 QScrollBar::handle:vertical {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                                stop:0 #A020F0, stop:1 #7020A0);
+                                stop:0 #A020F0, stop:0.5 #9020E0, stop:1 #8020D0);
     min-height: 40px;
     border-radius: 7px;
 }
 
 QScrollBar::handle:vertical:hover {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                                stop:0 #B030FF, stop:1 #8030B0);
+                                stop:0 #B030FF, stop:0.5 #A030F0, stop:1 #9030E0);
 }
 
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
@@ -439,7 +583,7 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
 
 QScrollBar:horizontal {
     border: none;
-    background-color: #252525;
+    background-color: #1E1E24;
     height: 14px;
     margin: 0;
     border-radius: 7px;
@@ -447,14 +591,14 @@ QScrollBar:horizontal {
 
 QScrollBar::handle:horizontal {
     background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 #A020F0, stop:1 #7020A0);
+                                stop:0 #A020F0, stop:0.5 #9020E0, stop:1 #8020D0);
     min-width: 40px;
     border-radius: 7px;
 }
 
 QScrollBar::handle:horizontal:hover {
     background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 #B030FF, stop:1 #8030B0);
+                                stop:0 #B030FF, stop:0.5 #A030F0, stop:1 #9030E0);
 }
 
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
@@ -467,121 +611,271 @@ QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
     background: none;
 }
 
-/* List widget with better spacing */
-QListWidget {
-    background-color: #1A1A1A;
-    border: 1px solid #333333;
-    border-radius: 5px;
-    padding: 5px;
-    font-size: 14pt;
-}
+/*****************************************************************************
+* STANDARDIZED SELECTION HIGHLIGHTING
+*****************************************************************************/
 
-QListWidget::item {
-    padding: 8px;
-    min-height: 25px;
-    border-radius: 3px;
-}
-
+/* Standardize ListView selections (Document list, Model list) */
 QListWidget::item:selected {
-    background-color: #A020F0;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #B030FF, stop:0.5 #A020F0, stop:1 #8020D0);
     color: #FFFFFF;
 }
 
 QListWidget::item:hover:!selected {
-    background-color: #2A2A2A;
+    background-color: #2A2A3A;
+    border-left: 2px solid #A020F0;
 }
 
-/* n8n specific button coloring */
-QPushButton[objectName="n8n_start_button"] {
+/* Standardize TableView selections (KV Cache table) */
+QTableWidget::item:selected {
     background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 #00D863, stop:1 #00B853);
-}
-
-QPushButton[objectName="n8n_stop_button"] {
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 #FF4D10, stop:1 #FF2D00);
-}
-
-/*****************************************************************************
-* FIXES FOR TEXT CUTTING OFF
-*****************************************************************************/
-
-/* Ensure version label doesn't get cut off */
-QLabel#version_label, QLabel[objectName="llama_version_label"] {
-    min-height: 30px;
-    font-size: 14pt;
-    font-weight: bold;
-}
-
-/* Make sure path fields can display longer paths */
-QLineEdit[objectName*="path"] {
-    min-width: 400px;
-    min-height: 35px;
-    padding: 5px 10px;
-    font-family: "SF Mono", "Consolas", "DejaVu Sans Mono", monospace;
-}
-
-/* Tooltips with gradient */
-QToolTip {
-    background-color: #252525;
+                                stop:0 #B030FF, stop:0.5 #A020F0, stop:1 #8020D0);
     color: #FFFFFF;
-    border: 1px solid #A020F0;
-    padding: 8px;
-    border-radius: 4px;
-    font-size: 12pt;
 }
 
-/* Main window header labels */
-QLabel[text="Settings"] {
-    font-size: 20pt;
-    color: #A020F0;
-    font-weight: bold;
-    padding: 10px 0;
+QTableWidget::item:hover:!selected {
+    background-color: #2A2A3A;
+    border-left: 2px solid #A020F0;
 }
 
-/* Status indicator in status bar */
-QPushButton#statusIndicator[status="ok"] {
+/* Standardize TreeView selections */
+QTreeView::item:selected {
     background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 #00D863, stop:1 #00B853);
-    min-width: 160px;
-    border-radius: 6px;
+                                stop:0 #B030FF, stop:0.5 #A020F0, stop:1 #8020D0);
+    color: #FFFFFF;
+}
+
+QTreeView::item:hover:!selected {
+    background-color: #2A2A3A;
+    border-left: 2px solid #A020F0;
+}
+
+/* Standardize ComboBox dropdown selections */
+QComboBox QAbstractItemView::item:selected {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #B030FF, stop:0.5 #A020F0, stop:1 #8020D0);
+    color: #FFFFFF;
+}
+
+QComboBox QAbstractItemView::item:hover:!selected {
+    background-color: #2A2A3A;
+    border-left: 2px solid #A020F0;
+}
+
+/* Standardize all other selection types */
+QAbstractItemView::item:selected {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #B030FF, stop:0.5 #A020F0, stop:1 #8020D0);
+    color: #FFFFFF;
+}
+
+QAbstractItemView::item:hover:!selected {
+    background-color: #2A2A3A;
+    border-left: 2px solid #A020F0;
+}
+
+/* Text selection highlighting */
+QLineEdit::selection, QTextEdit::selection, QPlainTextEdit::selection {
+    background-color: #A020F0;
+    color: #FFFFFF;
+}
+
+/* Specifically target model list selection */
+#model_tab QListWidget::item:selected {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #B030FF, stop:0.5 #A020F0, stop:1 #8020D0);
+    color: #FFFFFF;
+    border-radius: 4px;
+}
+
+#model_tab QListWidget::item:hover:!selected {
+    background-color: #2A2A3A;
+    border-left: 2px solid #A020F0;
+}
+
+/* Specifically target document list selection */
+#document_tab QListWidget::item:selected {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #B030FF, stop:0.5 #A020F0, stop:1 #8020D0);
+    color: #FFFFFF;
+    border-radius: 4px;
+}
+
+#document_tab QListWidget::item:hover:!selected {
+    background-color: #2A2A3A;
+    border-left: 2px solid #A020F0;
+}
+
+/* Specifically target KV cache table selection */
+#cache_tab QTableWidget::item:selected {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #B030FF, stop:0.5 #A020F0, stop:1 #8020D0);
+    color: #FFFFFF;
+}
+
+#cache_tab QTableWidget::item:hover:!selected {
+    background-color: #2A2A3A;
+    border-left: 2px solid #A020F0;
+}
+
+/* Override any blue selections in table headers */
+QHeaderView::section:selected {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #3A3A4A, stop:1 #2A2A3A);
+    color: #FFFFFF;
+}
+
+/* Ensure dropdown menus use consistent styling */
+QMenu::item:selected {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #B030FF, stop:0.5 #A020F0, stop:1 #8020D0);
+    color: #FFFFFF;
+}
+
+/* Make sure checkboxes use purple */
+QCheckBox::indicator:checked {
+    background-color: #A020F0;
+    border: 1px solid #B030FF;
+}
+
+QCheckBox::indicator:unchecked:hover {
+    border: 1px solid #B030FF;
+}
+
+/* Make sure radio buttons use purple */
+QRadioButton::indicator:checked {
+    background-color: #A020F0;
+    border: 1px solid #B030FF;
+}
+
+QRadioButton::indicator:unchecked:hover {
+    border: 1px solid #B030FF;
+}
+
+/* Add a subtle purple outline when a UI component has keyboard focus */
+QWidget:focus {
+    outline: 1px solid #A020F0;
+}
+
+/* Additional specific selectors for any remaining components */
+QComboBox:focus {
+    border: 1px solid #B030FF;
+    border-bottom: 2px solid #A020F0;
+}
+
+/* Fix for dropdown arrow buttons */
+QComboBox::drop-down {
+    border: none;
+    width: 25px;
+    background-color: transparent;
+}
+
+QComboBox::down-arrow {
+    width: 12px;
+    height: 12px;
+}
+
+/* Checkboxes and other form controls */
+QCheckBox {
+    spacing: 8px;
+    min-height: 22px;
     font-size: 14pt;
 }
 
-/* Frame for each section with proper spacing */
-QFrame[objectName="llama_group"],
-QFrame[objectName="paths_group"],
-QFrame[objectName="model_group"],
-QFrame[objectName="n8n_group"] {
-    background-color: #1A1A1A;
+QCheckBox::indicator {
+    width: 18px;
+    height: 18px;
+    border-radius: 3px;
+    border: 1px solid #444444;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #27273A, stop:1 #1E1E2A); /* Gradient background */
+}
+
+/* Combo box refinements */
+QComboBox {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #2A2A36, stop:1 #252531); /* Gradient background */
+    border: 1px solid #444444;
+    border-radius: 5px;
+    padding: 8px 10px;
+    padding-right: 25px;
+    min-height: 35px; /* Taller */
+    color: #FFFFFF;
+    font-size: 14pt;
+}
+
+QComboBox:on {
+    border: 1px solid #B030FF;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #32324A, stop:0.5 #2D2D40, stop:1 #27273A); /* Slightly lighter when focused */
+}
+
+/* Group boxes with refinements */
+QGroupBox {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #252536, stop:1 #1E1E2A); /* Gradient background */
+    border: 1px solid #333333;
+    border-bottom: 2px solid #222222; /* Subtle shadow */
+    border-radius: 6px;
+    margin-top: 16px;
+    padding: 15px;
+    font-size: 14pt;
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    padding: 0 10px;
+    left: 10px;
+    color: #B030FF;
+    font-size: 15pt;
+    font-weight: bold;
+}
+
+/* Document page info frame */
+QFrame[objectName="info_frame"] {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #252536, stop:1 #1E1E2A); /* Gradient background */
     border: 1px solid #333333;
     border-radius: 6px;
+    padding: 10px;
+}
+
+/* Dialog styling */
+QDialog {
+    background-color: #121212;
+    border: 1px solid #333333;
+    border-bottom: 3px solid #222222; /* Shadow effect */
+    border-radius: 8px;
     padding: 15px;
-    margin: 5px 0;
-    min-height: 100px;
 }
 
-/* Prevent overlap in form rows */
-QFormLayout QLabel, QFormLayout QLineEdit,
-QFormLayout QSpinBox, QFormLayout QComboBox {
-    margin-top: 5px;
-    margin-bottom: 5px;
+QDialogButtonBox QPushButton {
+    min-width: 100px;
+    min-height: 25px;
+    padding: 8px 15px;
 }
 
-/* Force all spinboxes to be properly sized */
-QSpinBox {
-    min-width: 150px;
-    max-width: 200px;
+/* Tab widget pane */
+QTabWidget::pane {
+    border: none;
+    background-color: transparent;
+    padding: 3px;
 }
 
-/* More space between form items */
-#settings_tab QFormLayout {
-    spacing: 15px;
+/* Fixes for specific elements */
+QFrame[frameShape="4"], QFrame[frameShape="6"] {
+    border: 1px solid #333333;
+    border-bottom: 2px solid #222222; /* Subtle shadow */
+    border-radius: 6px;
 }
 
-/* Status message at the bottom */
-QLabel[objectName="status_label"] {
-    font-size: 14pt;
-    padding: 5px;
-    min-height: 30px;
+/* Fix any remaining black backgrounds in KV cache status indicator in chat tab */
+QLabel[objectName="kv_cache_status_label"] {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #27273A, stop:1 #1E1E2A); /* Gradient background */
+    color: #FFFFFF;
+    border-radius: 5px;
+    padding: 5px 10px;
 }
