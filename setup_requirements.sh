@@ -28,7 +28,7 @@ brew install git cmake make python3 pyqt@5
 
 # Install Python packages
 echo "Installing required Python packages..."
-pip3 install PyQt5 requests python-dotenv llama-cpp-python psutil
+pip3 install PyQt5 requests python-dotenv llama-cpp-python
 
 # Set up llama.cpp directory
 echo "Setting up llama.cpp directory..."

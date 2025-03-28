@@ -39,9 +39,9 @@ class WelcomeDialog(QDialog):
 
         # --- Introduction ---
         intro_text = """
-        <p>Hi there! I'm LlamaCag UI, an application designed to let you 'chat' with your documents using Large Language Models (LLMs) with high accuracy.</p>
-        <p><b>Key Concept: Strict Contextual Answering</b></p>
-        <p>Unlike many AI tools, LlamaCag is specifically designed to force the LLM to answer questions based <i>only</i> on the content of the document you provide (using its KV Cache). It's artificially limited to prevent the model from using its general knowledge or making things up (hallucinating). This ensures the answers strictly reflect the document's information.</p>
+        <p>Hi there! LlamaCag UI lets you 'chat' with your documents using Large Language Models (LLMs), leveraging their full context window for high accuracy.</p>
+        <p><b>Key Concept: Context-Augmented Generation (CAG) & Strict Answering</b></p>
+        <p>Instead of retrieving snippets (like RAG), LlamaCag processes the <i>entire</i> document through the selected LLM once to create a <b>KV Cache</b> (the model's 'memory' of the document). When you chat, this cache is loaded, allowing fast, context-aware answers based <i>only</i> on the document's content. The model is prevented from using outside knowledge or hallucinating.</p>
         """
         intro_label = QLabel(intro_text)
         intro_label.setWordWrap(True)
@@ -59,11 +59,25 @@ class WelcomeDialog(QDialog):
 
         guide_text = """
         <ol>
-            <li><b>Download/Select a Model:</b> Go to the '<b>Models</b>' tab. You can download recommended models (like Gemma or Llama 3 in GGUF format) or import one you've downloaded manually into the designated folder (check 'Settings'). Select the model you want to use.</li>
-            <li><b>Process Your Document:</b> Go to the '<b>Documents</b>' tab. Select a text-based file (<code>.txt</code> or <code>.md</code>). The app will estimate its size. Click '<b>Create KV Cache</b>'. This reads the document and saves the model's 'memory' of it.</li>
-            <li><b>Load the Document Context:</b> When a document is processed, its KV Cache is created. To chat with a specific document, go to the '<b>KV Cache Monitor</b>' tab, select the cache corresponding to your document, and click '<b>Use Selected</b>'. Otherwise, the 'Master KV Cache' (if set during document processing) will be used by default.</li>
-            <li><b>Start Chatting:</b> Go to the '<b>Chat</b>' tab. Ensure '<b>Use KV Cache</b>' is checked. Now you can ask questions! The model will answer based *only* on the document loaded in the selected KV Cache. <b>Important:</b> If no KV Cache is loaded, the chat won't work, as it requires document context.</li>
+            <li><b>Download/Select a Model:</b> Go to the '<b>Models</b>' tab. Download a model (e.g., Gemma 3 4B Q4_K_M for a good balance of speed and capability) or import one (GGUF format). <b>Select the model you want to use for processing and chatting.</b></li>
+
+            <li><b>Process Your Document:</b> Go to the '<b>Documents</b>' tab. Select your text file (<code>.txt</code>, <code>.md</code>). Click '<b>Create KV Cache</b>'.
+                <ul><li>This uses the <i>currently selected model</i> to read the document and save its KV Cache.</li>
+                    <li>Processing large documents (e.g., 128k tokens) can take time, especially without GPU acceleration (see Settings below).</li>
+                    <li>Optionally check '<b>Set as Master KV Cache</b>' to make this the default cache used by the Chat tab if no other cache is explicitly selected.</li>
+                </ul>
+            </li>
+
+            <li><b>Load Context & Chat:</b> Go to the '<b>Chat</b>' tab and ensure '<b>Use KV Cache</b>' is checked.
+                <ul><li><b>Method A (Specific Cache):</b> Go to '<b>KV Cache Monitor</b>', select the cache for your document, click '<b>Use Selected</b>'. This guarantees you're chatting with that specific document's context.</li>
+                    <li><b>Method B (Master Cache):</b> If you set a Master Cache and haven't specifically selected another one via the Monitor, the Chat tab will use the Master Cache by default.</li>
+                    <li><b>Method C (Warm-Up - Recommended for Performance):</b> After selecting a cache (Method A or B), click the '<b>Warm Up Cache</b>' button in the Chat tab. This pre-loads the model and cache into memory for the fastest possible responses during your chat session.</li>
+                </ul>
+            </li>
+
+            <li><b>Ask Questions:</b> Type your question and hit Send. The model will answer based *only* on the loaded document context.</li>
         </ol>
+        <p><b><font color='red'>VERY IMPORTANT:</font> KV Caches are Model-Specific!</b> A cache created with Model A <u>cannot</u> be used with Model B. You must create a separate cache for each document *using the specific model* you intend to chat with.</p>
         """
         guide_label = QLabel(guide_text)
         guide_label.setWordWrap(True)
@@ -73,8 +87,29 @@ class WelcomeDialog(QDialog):
         guide_label.setOpenExternalLinks(True)
         layout.addWidget(guide_label)
 
+        # --- Performance Settings (macOS M4 Pro Focus) ---
+        perf_title = QLabel("⚙️ Performance Settings (Especially for Mac)")
+        perf_title.setFont(guide_font) # Reuse guide font
+        layout.addWidget(perf_title)
+
+        perf_text = """
+        <p>Processing large documents requires significant computation. Go to the '<b>Settings</b>' tab to optimize:</p>
+        <ul>
+            <li><b>GPU Layers:</b> <font color='orange'><b>This is crucial for speed on Apple Silicon (like your M4 Pro)!</b></font> It determines how many model layers run on the GPU (Metal). Start with <b>15-20</b> for 4B models or <b>10-15</b> for 8B models on 24GB RAM. Increase cautiously while monitoring memory in Activity Monitor. Too high uses too much RAM and slows down; 0 uses CPU only (slow).</li>
+            <li><b>CPU Cores (Threads):</b> Set to your number of <i>performance</i> cores (e.g., 8 or 10 for M4 Pro).</li>
+            <li><b>Batch Size:</b> Tokens processed in parallel during cache creation. Default 512 is usually fine. Lower to 256 if RAM usage is too high during processing.</li>
+        </ul>
+        <p><i>Note: Even with GPU offload, 128k token processing takes time. Some slowdown might also be due to `llama.cpp`'s Metal backend optimizations. Remember to Save Settings and restart the app after changes.</i></p>
+        """
+        perf_label = QLabel(perf_text)
+        perf_label.setWordWrap(True)
+        perf_label.setTextFormat(Qt.RichText)
+        perf_label.setAlignment(Qt.AlignLeft)
+        layout.addWidget(perf_label)
+
+
         # --- Spacer ---
-        layout.addSpacerItem(QSpacerItem(20, 20, QSizePolicy.Minimum, QSizePolicy.Expanding))
+        layout.addSpacerItem(QSpacerItem(20, 10, QSizePolicy.Minimum, QSizePolicy.Expanding)) # Reduced spacer
 
         # --- Don't Show Again Checkbox ---
         self.dont_show_checkbox = QCheckBox("Don't show this message again")

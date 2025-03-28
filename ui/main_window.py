@@ -9,9 +9,9 @@ import logging
 from pathlib import Path
 from PyQt5.QtWidgets import (
     QMainWindow, QTabWidget, QVBoxLayout, QHBoxLayout,
-    QWidget, QLabel, QStatusBar, QPushButton, QMessageBox
+    QWidget, QLabel, QStatusBar, QPushButton, QMessageBox, QSizePolicy # Added QSizePolicy
 )
-from PyQt5.QtCore import Qt, QSize, QSettings, QTimer, pyqtSlot
+from PyQt5.QtCore import Qt, QSize, QSettings, QTimer, pyqtSlot # Added pyqtSlot import
 from core.llama_manager import LlamaManager
 from core.model_manager import ModelManager
 from core.document_processor import DocumentProcessor
@@ -23,16 +23,13 @@ from ui.document_tab import DocumentTab
 from ui.chat_tab import ChatTab
 from ui.cache_tab import CacheTab
 from ui.settings_tab import SettingsTab
-from ui.welcome_dialog import WelcomeDialog
-from ui.components.resource_monitor import ResourceMonitor
+from ui.welcome_dialog import WelcomeDialog # Added import
 from utils.config import ConfigManager
 
 class MainWindow(QMainWindow):
     """Main application window for LlamaCag UI"""
-    def __init__(self, config_manager: ConfigManager, llama_manager: LlamaManager,
-                 model_manager: ModelManager, cache_manager: CacheManager, # Added type hints
-                 document_processor: DocumentProcessor, chat_engine: ChatEngine,
-                 n8n_interface: N8nInterface):
+    def __init__(self, config_manager, llama_manager, model_manager, cache_manager,
+                 document_processor, chat_engine, n8n_interface):
         """Initialize main window"""
         super().__init__()
         self.config_manager = config_manager
@@ -59,11 +56,8 @@ class MainWindow(QMainWindow):
         # Check for updates
         QTimer.singleShot(5000, self.check_updates)
 
-        # Show welcome dialog shortly after main window is shown
-        QTimer.singleShot(200, self.maybe_show_welcome_dialog) # Delay showing
-
-        # Trigger preload on startup if configured
-        QTimer.singleShot(500, self.chat_engine.trigger_preload_on_startup) # Delay slightly
+        # Show welcome dialog if needed (after UI setup and settings restore)
+        self.maybe_show_welcome_dialog()
 
     def setup_ui(self):
         """Set up the user interface"""
@@ -86,14 +80,11 @@ class MainWindow(QMainWindow):
 
         # Create tabs
         self.model_tab = ModelTab(self.model_manager, self.config_manager)
+        # Pass cache_manager to DocumentTab constructor
         self.document_tab = DocumentTab(self.document_processor, self.model_manager, self.cache_manager, self.config_manager)
         self.chat_tab = ChatTab(self.chat_engine, self.model_manager, self.cache_manager, self.config_manager)
         self.cache_tab = CacheTab(self.cache_manager, self.document_processor, self.config_manager)
-        # Pass cache_manager and chat_engine to SettingsTab
-        self.settings_tab = SettingsTab(
-            self.config_manager, self.llama_manager, self.n8n_interface,
-            self.model_manager, self.cache_manager, self.chat_engine
-        )
+        self.settings_tab = SettingsTab(self.config_manager, self.llama_manager, self.n8n_interface, self.model_manager)
 
         # Add tabs to tab widget
         self.tabs.addTab(self.model_tab, "Models")
@@ -109,38 +100,35 @@ class MainWindow(QMainWindow):
         # Status bar components
         self.status_llama = QLabel("llama.cpp: Checking...")
         self.status_model = QLabel("Model: None")
-        self.status_kv_cache = QLabel("KV Cache: None")
+        self.status_kv_cache = QLabel("KV Cache: None") # Restored
         self.status_n8n = QLabel("n8n: Checking...")
-        self.status_chat_engine = QLabel("Chat Engine: Idle")
+        self.status_chat_engine = QLabel("Chat Engine: Idle") # Label for chat status
 
-        # Helper function to create separators
-        def create_separator():
-            separator = QLabel(" | ")
-            separator.setStyleSheet("padding-left: 5px; padding-right: 5px;")
-            return separator
+        # --- Status Bar Layout Modification ---
+        # Container for status labels
+        status_widget = QWidget()
+        status_layout = QHBoxLayout(status_widget)
+        status_layout.setContentsMargins(5, 0, 5, 0) # Adjust margins as needed
+        status_layout.setSpacing(10) # Spacing between items
 
-        self.status_bar.addWidget(self.status_llama)
-        self.status_bar.addWidget(create_separator())
-        self.status_bar.addWidget(self.status_model)
-        self.status_bar.addWidget(create_separator())
-        self.status_bar.addWidget(self.status_kv_cache)
-        self.status_bar.addWidget(create_separator())
-        self.status_bar.addWidget(self.status_n8n)
-        self.status_bar.addWidget(create_separator())
-        self.status_bar.addWidget(self.status_chat_engine)
+        # Add status labels to the layout
+        status_layout.addWidget(self.status_llama)
+        status_layout.addWidget(self.status_model)
+        status_layout.addWidget(self.status_kv_cache)
+        status_layout.addWidget(self.status_n8n)
+        status_layout.addWidget(self.status_chat_engine)
+        status_layout.addStretch(1) # Push labels to the left
+
+        # Add the container widget to the status bar
+        self.status_bar.addWidget(status_widget, 1) # Add with stretch factor 1
+        # --- End Status Bar Layout Modification ---
 
         # Overall status indicator
         self.status_indicator = QPushButton("System Status")
+        self.status_indicator.setObjectName("statusIndicator") # Set object name for QSS
         self.status_indicator.setFlat(True)
-        self.status_indicator.setFixedWidth(120)
-        self.status_indicator.setStyleSheet(
-            "QPushButton { background-color: #FFA000; color: white; border-radius: 10px; }"
-        )
-        self.status_bar.addPermanentWidget(self.status_indicator)
-
-        # Add Resource Monitor
-        self.resource_monitor = ResourceMonitor()
-        self.status_bar.addPermanentWidget(self.resource_monitor)
+        # Removed setFixedWidth and setStyleSheet - handled by QSS in style.qss
+        self.status_bar.addPermanentWidget(self.status_indicator) # Add as permanent widget
 
     def connect_signals(self):
         """Connect signals between components"""
@@ -150,23 +138,14 @@ class MainWindow(QMainWindow):
         # Document tab signals
         self.document_tab.kv_cache_created.connect(self.update_status)
         self.document_tab.kv_cache_created.connect(self.cache_tab.refresh_caches)
-        # Refresh settings tab cache list when new cache created
-        self.document_tab.kv_cache_created.connect(self.settings_tab._populate_preload_combos)
-
 
         # Cache tab signals
         self.cache_tab.cache_selected.connect(self.chat_tab.on_cache_selected)
         self.cache_tab.cache_purged.connect(self.update_status)
-        # Refresh settings tab cache list when cache purged
-        self.cache_tab.cache_purged.connect(self.settings_tab._populate_preload_combos)
-
 
         # Chat signals
         self.model_tab.model_changed.connect(self.chat_tab.on_model_changed)
         self.model_tab.model_changed.connect(self.document_tab.on_model_changed)
-        # Refresh settings tab model list when model list updated
-        self.model_manager.model_list_updated.connect(self.settings_tab._populate_preload_combos)
-
 
         # N8n interface signals
         self.n8n_interface.status_changed.connect(self.update_n8n_status)
@@ -177,19 +156,11 @@ class MainWindow(QMainWindow):
 
         # Chat engine status signal
         self.chat_engine.status_updated.connect(self.on_chat_status_updated)
-        # Connect ChatEngine preload signals to SettingsTab slots
-        self.chat_engine.preload_status_update.connect(self.settings_tab.on_preload_status_update)
-        self.chat_engine.preload_finished.connect(self.settings_tab.on_preload_finished)
-
 
         # Settings signals
         self.settings_tab.settings_changed.connect(self.on_settings_changed)
-        # Connect SettingsTab request signals to ChatEngine slots (No worker needed here)
-        # self.settings_tab.request_preload.connect(self.chat_engine.preload_model_and_cache) # Direct call might freeze UI
-        # self.settings_tab.request_unload.connect(self.chat_engine.unload_persistent_model) # Direct call likely okay
 
-
-    @pyqtSlot(str)
+    @pyqtSlot(str) # Slot for chat engine status updates
     def on_chat_status_updated(self, status: str):
         """Update the chat engine status label."""
         self.status_chat_engine.setText(f"Chat Engine: {status}")
@@ -217,13 +188,13 @@ class MainWindow(QMainWindow):
         # Calculate cache_count for overall status check
         cache_count = len(self.cache_manager.get_cache_list())
 
-        # KV cache status
+        # KV cache status - Restored general status here
         if cache_count > 0:
             cache_size = self.cache_manager.get_total_cache_size()
             size_str = self.format_size(cache_size)
-            self.status_kv_cache.setText(f"KV Cache: {cache_count} documents ({size_str})")
+            self.status_kv_cache.setText(f"KV Cache: {cache_count} documents ({size_str})") # Restored
         else:
-            self.status_kv_cache.setText("KV Cache: None")
+            self.status_kv_cache.setText("KV Cache: None") # Restored
 
         # N8n status will be updated by the signal handler
 
@@ -246,21 +217,26 @@ class MainWindow(QMainWindow):
 
     def set_status_indicator(self, status: str, tooltip: str):
         """Set the overall status indicator"""
+        # --- Status Indicator Styling Modification ---
         if status == "ok":
             self.status_indicator.setText("All Systems Go")
-            self.status_indicator.setStyleSheet(
-                "QPushButton { background-color: #4CAF50; color: white; border-radius: 10px; }"
-            )
+            # Set dynamic property for QSS styling
+            self.status_indicator.setProperty("status", "ok")
         elif status == "warning":
             self.status_indicator.setText("Warning")
-            self.status_indicator.setStyleSheet(
-                "QPushButton { background-color: #FFA000; color: white; border-radius: 10px; }"
-            )
+            # Set dynamic property for QSS styling
+            self.status_indicator.setProperty("status", "warning")
         elif status == "error":
             self.status_indicator.setText("Error")
-            self.status_indicator.setStyleSheet(
-                "QPushButton { background-color: #F44336; color: white; border-radius: 10px; }"
-            )
+            # Set dynamic property for QSS styling
+            self.status_indicator.setProperty("status", "error")
+        else: # Default or unknown status
+             self.status_indicator.setProperty("status", "unknown") # Or handle default differently
+
+        # Re-polish the widget to apply property-based styles
+        self.style().unpolish(self.status_indicator)
+        self.style().polish(self.status_indicator)
+        # --- End Status Indicator Styling Modification ---
 
         self.status_indicator.setToolTip(tooltip)
 
@@ -357,20 +333,11 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         """Handle window close event"""
-        # Unload persistent model if loaded
-        if self.chat_engine.is_preloaded():
-             logging.info("Unloading persistent model on application close.")
-             self.chat_engine.unload_persistent_model()
-
         # Save settings
         self.save_settings()
 
         # Save config
         self.config_manager.save_config()
-
-        # Stop resource monitor timer
-        if hasattr(self, 'resource_monitor'):
-            self.resource_monitor.stop_monitor()
 
         # Accept event
         event.accept()
@@ -390,9 +357,10 @@ class MainWindow(QMainWindow):
         """Checks settings and shows the welcome dialog if required."""
         if WelcomeDialog.should_show():
             # Store reference to prevent garbage collection
-            self.welcome_dialog = WelcomeDialog(self)
+            # Store reference to prevent garbage collection
+            self.welcome_dialog_instance = WelcomeDialog(self)
             # Show non-modally
-            self.welcome_dialog.show()
-            # Ensure it's raised to the front and activated
-            self.welcome_dialog.raise_()
-            self.welcome_dialog.activateWindow()
+            self.welcome_dialog_instance.show()
+            # Use QTimer.singleShot to ensure activation happens after event loop processing
+            QTimer.singleShot(0, self.welcome_dialog_instance.raise_)
+            QTimer.singleShot(0, self.welcome_dialog_instance.activateWindow)

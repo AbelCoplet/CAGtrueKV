@@ -1,0 +1,235 @@
+/* ui/style.qss - Material Design Inspired Dark Theme */
+
+QWidget {
+    background-color: #303030; /* Dark background */
+    color: #E0E0E0; /* Light text */
+    font-family: "Segoe UI", Arial, sans-serif; /* Common modern font */
+    font-size: 10pt;
+}
+
+QMainWindow {
+    background-color: #303030;
+}
+
+QStatusBar {
+    background-color: #424242; /* Slightly lighter status bar */
+    color: #BDBDBD; /* Slightly dimmer text for status */
+}
+
+QStatusBar::item {
+    border: none; /* Remove default borders */
+}
+
+QStatusBar QLabel {
+    background-color: transparent; /* Ensure labels don't override status bar bg */
+    padding: 2px 5px;
+    color: #BDBDBD;
+}
+
+/* Separator style if needed, though layout might handle spacing */
+/* QStatusBar QLabel[text=" | "] { ... } */
+
+QTabWidget::pane {
+    border: 1px solid #555555;
+    background-color: #424242; /* Tab content area background */
+    border-radius: 3px;
+    padding: 5px;
+}
+
+QTabBar::tab {
+    background-color: #555555; /* Inactive tab background */
+    color: #BDBDBD;
+    padding: 8px 15px;
+    margin-right: 2px; /* Space between tabs */
+    border-top-left-radius: 4px;
+    border-top-right-radius: 4px;
+    min-width: 100px; /* Ensure tabs have some minimum width */
+}
+
+QTabBar::tab:selected {
+    background-color: #00796B; /* Material Teal for selected tab */
+    color: #FFFFFF; /* White text on selected tab */
+    font-weight: bold;
+}
+
+QTabBar::tab:hover:!selected {
+    background-color: #666666; /* Hover effect for inactive tabs */
+}
+
+QPushButton {
+    background-color: #00796B; /* Material Teal */
+    color: #FFFFFF;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    min-height: 20px; /* Ensure buttons have reasonable height */
+    /* Basic shadow effect - QGraphicsDropShadowEffect is better but needs code */
+    /* border-bottom: 2px solid #004D40; */
+}
+
+QPushButton:hover {
+    background-color: #00897B; /* Lighter Teal on hover */
+}
+
+QPushButton:pressed {
+    background-color: #00695C; /* Darker Teal when pressed */
+    /* border-bottom: 1px solid #004D40; */
+}
+
+QPushButton:disabled {
+    background-color: #757575;
+    color: #BDBDBD;
+}
+
+/* Specific styling for flat status indicator button */
+QPushButton#statusIndicator { /* Assuming we give it an object name */
+    background-color: #FFA000; /* Default warning color */
+    color: white;
+    border-radius: 12px; /* More rounded */
+    padding: 4px 10px;
+    font-weight: bold;
+    min-height: 24px;
+    min-width: 110px;
+}
+
+/* Style based on property if object name isn't set */
+QPushButton[status="ok"] {
+    background-color: #4CAF50; /* Green */
+}
+QPushButton[status="warning"] {
+    background-color: #FFA000; /* Amber */
+}
+QPushButton[status="error"] {
+    background-color: #F44336; /* Red */
+}
+
+
+QLineEdit, QTextEdit, QPlainTextEdit {
+    background-color: #555555;
+    color: #E0E0E0;
+    border: 1px solid #666666;
+    border-radius: 3px;
+    padding: 5px;
+}
+
+QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus {
+    border: 1px solid #00796B; /* Highlight focus */
+}
+
+QComboBox {
+    background-color: #555555;
+    border: 1px solid #666666;
+    border-radius: 3px;
+    padding: 3px 5px;
+}
+
+QComboBox::drop-down {
+    border: none;
+    background-color: #666666;
+    width: 20px;
+    border-top-right-radius: 3px;
+    border-bottom-right-radius: 3px;
+}
+
+QComboBox::down-arrow {
+    image: url(./resources/down_arrow_light.png); /* Needs an appropriate icon */
+    width: 12px;
+    height: 12px;
+}
+/* TODO: Add a light down arrow icon to resources */
+
+QComboBox QAbstractItemView { /* Dropdown list style */
+    background-color: #555555;
+    border: 1px solid #777777;
+    selection-background-color: #00796B;
+    selection-color: #FFFFFF;
+    color: #E0E0E0;
+    padding: 2px;
+}
+
+QProgressBar {
+    border: 1px solid #666666;
+    border-radius: 3px;
+    text-align: center;
+    background-color: #555555;
+    color: #E0E0E0;
+}
+
+QProgressBar::chunk {
+    background-color: #00796B;
+    border-radius: 3px;
+    margin: 1px; /* Small margin around the chunk */
+}
+
+QLabel {
+    background-color: transparent; /* Ensure labels don't block background */
+    color: #E0E0E0;
+}
+
+QGroupBox {
+    background-color: #424242;
+    border: 1px solid #555555;
+    border-radius: 4px;
+    margin-top: 10px; /* Space for title */
+    padding: 10px;
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    padding: 0 5px;
+    left: 10px; /* Indent title slightly */
+    color: #BDBDBD;
+}
+
+QScrollBar:vertical {
+    border: none;
+    background: #424242;
+    width: 10px;
+    margin: 0px 0px 0px 0px;
+}
+QScrollBar::handle:vertical {
+    background: #757575;
+    min-height: 20px;
+    border-radius: 5px;
+}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    border: none;
+    background: none;
+    height: 0px;
+}
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+    background: none;
+}
+
+QScrollBar:horizontal {
+    border: none;
+    background: #424242;
+    height: 10px;
+    margin: 0px 0px 0px 0px;
+}
+QScrollBar::handle:horizontal {
+    background: #757575;
+    min-width: 20px;
+    border-radius: 5px;
+}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+    border: none;
+    background: none;
+    width: 0px;
+}
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
+    background: none;
+}
+
+/* Tooltip Style */
+QToolTip {
+    background-color: #212121; /* Even darker for tooltips */
+    color: #E0E0E0;
+    border: 1px solid #555555;
+    padding: 4px;
+    border-radius: 3px;
+    opacity: 230; /* Slight transparency */
+}
+
+/* Add specific styles for other widgets like QTreeView, QListView, etc. as needed */

@@ -49,6 +49,17 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName("LlamaCagUI")
     app.setApplicationVersion(VERSION)
+
+    # Load and apply stylesheet
+    try:
+        style_path = Path(__file__).parent / "ui" / "style.qss"
+        if style_path.exists():
+            with open(style_path, "r", encoding="utf-8") as f:
+                app.setStyleSheet(f.read())
+        else:
+            logging.warning(f"Stylesheet not found at {style_path}")
+    except Exception as e:
+        logging.error(f"Failed to load stylesheet: {str(e)}")
     # Load configuration
     try:
         config_manager = ConfigManager()

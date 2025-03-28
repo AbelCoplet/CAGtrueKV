@@ -96,9 +96,13 @@ class CacheManager(QObject):
                         else:
                             # New entry: Add to temporary dict using doc_registry lookup
                             doc_id = item.stem
-                            original_doc_path = "Unknown"
-                            if doc_id in doc_registry:
-                                original_doc_path = doc_registry[doc_id].get('original_file_path', 'Unknown')
+                            doc_info_from_registry = doc_registry.get(doc_id, {}) # Get info dict or empty dict
+
+                            original_doc_path = doc_info_from_registry.get('original_file_path', 'Unknown')
+                            token_count = doc_info_from_registry.get('token_count', 0)
+                            context_size = doc_info_from_registry.get('context_size', 0)
+                            model_id = doc_info_from_registry.get('model_id', '') # Load model_id
+                            is_master = doc_info_from_registry.get('is_master', False) # Load master status
 
                             new_entries[file_path_str] = {
                                 'path': file_path_str,
@@ -106,9 +110,13 @@ class CacheManager(QObject):
                                 'size': size_bytes,
                                 'last_modified': last_modified,
                                 'document_id': doc_id,
-                                'original_document': original_doc_path
+                                'original_document': original_doc_path,
+                                'token_count': token_count,   # Store from registry
+                                'context_size': context_size, # Store from registry
+                                'model_id': model_id,         # Store from registry
+                                'is_master': is_master        # Store from registry
                             }
-                            logging.debug(f"Found new cache file to add: {item.name}")
+                            logging.debug(f"Found new cache file to add (from scan): {item.name}")
 
                     except OSError as e:
                         logging.warning(f"Could not stat cache file {item}: {e}")

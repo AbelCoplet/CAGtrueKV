@@ -16,10 +16,10 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTextEdit, QLineEdit,
     QPushButton, QLabel, QCheckBox, QSlider, QSpinBox,
     QComboBox, QFileDialog, QSplitter, QFrame, QApplication,
-    QGroupBox, QStyle, QToolTip # Added QGroupBox, QStyle, QToolTip
+    QGroupBox, QStyle, QToolTip, QFormLayout # Added QFormLayout
 )
 from PyQt5.QtCore import Qt, QSize, pyqtSignal, pyqtSlot
-from PyQt5.QtGui import QFont, QTextCursor, QColor, QPalette, QPixmap # Added QPixmap
+from PyQt5.QtGui import QFont, QTextCursor, QColor, QPalette, QPixmap
 
 from core.chat_engine import ChatEngine
 from core.model_manager import ModelManager
@@ -105,6 +105,12 @@ class ChatTab(QWidget):
         self.cache_toggle.setChecked(self.chat_engine.use_kv_cache) # Initialize from engine state
         cache_status_layout.addWidget(self.cache_toggle)
 
+        # Add Warm Up Button
+        self.warmup_button = QPushButton("Warm Up Cache")
+        self.warmup_button.setToolTip("Load the selected KV cache into the model for faster responses.")
+        self.warmup_button.setEnabled(False) # Disabled initially
+        cache_status_layout.addWidget(self.warmup_button)
+
         layout.addWidget(cache_status_group)
         # --- End Cache Status Section ---
 
@@ -129,9 +135,20 @@ class ChatTab(QWidget):
 
         layout.addLayout(input_layout)
 
-        # Status label (Removed - redundant, main window status bar shows engine state)
-        # self.status_label = QLabel("Ready")
-        # layout.addWidget(self.status_label)
+        # --- Cache Performance Section ---
+        perf_group = QGroupBox("Cache Performance")
+        perf_layout = QFormLayout(perf_group)
+
+        self.load_time_label = QLabel("N/A")
+        self.tokens_label = QLabel("N/A")
+        self.file_size_label = QLabel("N/A")
+
+        perf_layout.addRow("Load Time:", self.load_time_label)
+        perf_layout.addRow("Tokens:", self.tokens_label)
+        perf_layout.addRow("File Size:", self.file_size_label)
+
+        layout.addWidget(perf_group)
+        # --- End Cache Performance Section ---
 
     def connect_signals(self):
         """Connect signals between components"""
@@ -140,22 +157,29 @@ class ChatTab(QWidget):
         self.user_input.returnPressed.connect(self.send_message) # Send on Enter key
 
         # Chat engine signals
-        self.chat_engine.response_complete.connect(self.on_response_complete) # Renamed slot
-        self.chat_engine.response_chunk.connect(self.append_response_chunk) # Connect chunk signal
-        # self.chat_engine.status_updated.connect(self.update_status) # Removed - Slot was removed as label is gone
+        self.chat_engine.response_complete.connect(self.on_response_complete)
+        self.chat_engine.response_chunk.connect(self.append_response_chunk)
         self.chat_engine.error_occurred.connect(self.display_error)
+        # Connect new ChatEngine signals for warm-up
+        self.chat_engine.cache_warming_started.connect(self.on_cache_warming_started)
+        self.chat_engine.cache_warmed_up.connect(self.on_cache_warmed_up)
+        self.chat_engine.cache_unloaded.connect(self.on_cache_unloaded)
+        self.chat_engine.cache_status_changed.connect(self.on_cache_status_changed) # Connect specific status signal
 
         # Cache toggle signal
         self.cache_toggle.stateChanged.connect(self.on_cache_toggle_changed)
 
-        # Cache Manager signal (to detect external deletions)
+        # Warmup button signal
+        self.warmup_button.clicked.connect(self.on_warmup_button_clicked)
+
+        # Cache Manager signal (to detect external deletions or updates)
         self.cache_manager.cache_list_updated.connect(self.update_cache_status_display)
 
 
     def initialize_state(self):
         """Initialize UI state from current settings"""
         self.update_cache_status_display() # Update cache status on init
-        # self.update_status("Idle") # Removed call to deleted method
+        self.on_cache_status_changed("Idle") # Initialize specific status
 
     def send_message(self):
         """Send the user's message to the chat engine"""
@@ -214,22 +238,14 @@ class ChatTab(QWidget):
         # self.user_input.setEnabled(True) # Keep input enabled
         self.user_input.setFocus() # Set focus back to input
 
-    # Removed update_status as the label is removed
-    # @pyqtSlot(str)
-    # def update_status(self, status: str):
-    #     """Update the status label"""
-    #     # self.status_label.setText(status) # Label removed
-    #     logging.info(f"Chat Status: {status}") # Keep logging
-
     @pyqtSlot(str)
     def display_error(self, error_message: str):
-        """Display an error message in the chat history and status"""
+        """Display an error message in the chat history and update status"""
         self.append_message("Error", error_message, color=QColor("red"))
-        # Status is updated by ChatEngine signal ("Error")
-        # self.update_status(f"Error: {error_message[:50]}...") # Show truncated error in status
+        # Status is updated by ChatEngine signal ("Error") -> cache_status_changed("Error")
         logging.error(f"Chat Error: {error_message}")
         self.send_button.setEnabled(True) # Re-enable button on error
-        # self.user_input.setEnabled(True) # Keep input enabled
+        self.warmup_button.setEnabled(self._can_warmup()) # Re-evaluate warmup button state
         self.user_input.setFocus()
 
     def append_message(self, sender: str, message: str, color: QColor = None):
@@ -271,79 +287,170 @@ class ChatTab(QWidget):
         enabled = state == Qt.Checked
         self.chat_engine.toggle_kv_cache(enabled)
         self.update_cache_status_display() # Update UI immediately
+        self.warmup_button.setEnabled(self._can_warmup()) # Update button state
 
     def on_model_changed(self, model_id: str):
-        """Handle model change (placeholder)"""
-        # Might clear chat history or update status
-        # self.update_status(f"Model changed to {model_id}. Chat context might be reset.") # Removed call to deleted method
-        logging.info(f"ChatTab: Model changed to {model_id}. Updating cache status display.") # Keep logging info
-        # self.chat_history.clear() # Optional: Clear history on model change
-        self.update_cache_status_display() # Model change might affect cache compatibility/choice
+        """Handle model change."""
+        logging.info(f"ChatTab: Model changed to {model_id}. Updating cache status display.")
+        # Check if the current warmed cache is compatible with the new model
+        if self.chat_engine.warmed_cache_path:
+            cache_info = self.cache_manager.get_cache_info(self.chat_engine.warmed_cache_path)
+            if not cache_info or cache_info.get('model_id') != model_id:
+                logging.warning(f"Model changed to {model_id}, unloading incompatible warmed cache.")
+                self.chat_engine.unload_cache() # Unload if incompatible
+            else:
+                logging.info("Warmed cache is compatible with the new model.")
+        self.update_cache_status_display() # Update display based on potential unload
 
     def on_cache_selected(self, cache_path: str):
         """Handle KV cache selection from CacheTab."""
+        # Unload previous cache if different one is selected
+        if self.chat_engine.warmed_cache_path and self.chat_engine.warmed_cache_path != cache_path:
+            logging.info("New cache selected, unloading previously warmed cache.")
+            self.chat_engine.unload_cache()
+
         # Inform chat engine about the selected cache
         if not self.chat_engine.set_kv_cache(cache_path):
              # Error signal should be emitted by chat_engine if set_kv_cache fails
-             # self.display_error(f"Failed to set KV cache: {Path(cache_path).name}")
              pass
         # Update UI regardless of success/failure, as chat_engine state changed
         self.update_cache_status_display()
+        self.warmup_button.setEnabled(self._can_warmup()) # Update button state
+
+    def _can_warmup(self) -> bool:
+        """Check if conditions are met to enable the warm-up button."""
+        return (self.chat_engine.use_kv_cache and
+                self.chat_engine.current_kv_cache_path is not None and
+                Path(self.chat_engine.current_kv_cache_path).exists())
+
+    def _format_size(self, size_bytes: int) -> str:
+        """Format size in bytes to human-readable string"""
+        if size_bytes < 1024:
+            return f"{size_bytes} B"
+        elif size_bytes < 1024 * 1024:
+            return f"{size_bytes / 1024:.1f} KB"
+        elif size_bytes < 1024 * 1024 * 1024:
+            return f"{size_bytes / (1024 * 1024):.1f} MB"
+        else:
+            return f"{size_bytes / (1024 * 1024 * 1024):.1f} GB"
+
+    # --- Slots for Warm-up Signals ---
+    @pyqtSlot()
+    def on_cache_warming_started(self):
+        """Handle cache warming start."""
+        self.warmup_button.setEnabled(False)
+        self.warmup_button.setText("Warming Up...")
+        # Status label updated by on_cache_status_changed
+
+    @pyqtSlot(float, int, int)
+    def on_cache_warmed_up(self, load_time: float, token_count: int, file_size: int):
+        """Handle cache warming completion."""
+        self.warmup_button.setText("Unload Cache")
+        self.warmup_button.setEnabled(True)
+        self.load_time_label.setText(f"{load_time:.2f} s")
+        self.tokens_label.setText(f"{token_count:,}")
+        self.file_size_label.setText(self._format_size(file_size))
+        # Status label updated by on_cache_status_changed
+
+    @pyqtSlot()
+    def on_cache_unloaded(self):
+        """Handle cache unloading completion."""
+        self.warmup_button.setText("Warm Up Cache")
+        self.warmup_button.setEnabled(self._can_warmup()) # Re-evaluate if button should be enabled
+        self.load_time_label.setText("N/A")
+        self.tokens_label.setText("N/A")
+        self.file_size_label.setText("N/A")
+        # Status label updated by on_cache_status_changed
+
+    @pyqtSlot(str)
+    def on_cache_status_changed(self, status: str):
+        """Update the specific cache status label in the chat tab."""
+        logging.info(f"ChatTab Cache Status Update: {status}")
+        status_color = "gray" # Default
+        if status == "Warming Up" or status == "Warming Up (Loading State)..." or status == "Unloading":
+            status_color = "orange"
+        elif status == "Warmed Up" or status == "Warmed Up (Generating)":
+            status_color = "green"
+        elif status == "Error":
+            status_color = "red"
+            # Reset button state on error during warm-up/unload
+            self.warmup_button.setText("Warm Up Cache")
+            self.warmup_button.setEnabled(self._can_warmup())
+        elif status == "Using TRUE KV Cache" or status == "Using TRUE KV Cache (Generating)":
+             # This status is for temporary loads, not persistent warm-up
+             status_color = "blue" # Use a different color? Or just green? Let's use blue for distinction.
+        elif status == "Fallback (Generating)":
+             status_color = "orange"
+
+        self.cache_effective_status_label.setText(f"({status})")
+        self.cache_effective_status_label.setStyleSheet(f"color: {status_color};")
+
+    @pyqtSlot()
+    def on_warmup_button_clicked(self):
+        """Handle clicks on the warm-up/unload button."""
+        if self.chat_engine.warmed_cache_path:
+            # Currently warmed up, so unload
+            self.chat_engine.unload_cache()
+        elif self._can_warmup():
+            # Not warmed up, conditions met, so warm up
+            self.chat_engine.warm_up_cache(self.chat_engine.current_kv_cache_path)
+        else:
+            logging.warning("Warmup button clicked but conditions not met.")
+
 
     def update_cache_status_display(self):
-        """Update the KV cache status indicators in the UI."""
+        """Update the KV cache status indicators in the UI, including warm-up button state."""
+        # --- Update Cache Name Label ---
         cache_path_str = self.chat_engine.current_kv_cache_path
-        use_cache = self.chat_engine.use_kv_cache
-        logging.debug(f"Updating cache status display: use_cache={use_cache}, cache_path_str='{cache_path_str}'")
-        cache_exists = False
         cache_name = "None"
-        status_text = "(Status: Unknown)"
-        status_color = "gray"
-
+        cache_exists = False
         if cache_path_str:
             cache_path = Path(cache_path_str)
             cache_name = cache_path.name
             try:
                 if cache_path.exists():
                     cache_exists = True
-                    logging.debug(f"Cache file exists: {cache_path_str}")
                 else:
                     cache_name = f"{cache_name} (Not Found!)"
-                    logging.warning(f"Cache file path set ('{cache_path_str}') but file does not exist.")
             except OSError as e:
-                 logging.error(f"Error checking if cache file exists '{cache_path_str}': {e}")
+                 logging.error(f"Error checking cache file existence '{cache_path_str}': {e}")
                  cache_name = f"{cache_name} (Error Checking!)"
-                 cache_exists = False
-
-        # Determine status text and color based on state
-        if use_cache:
-            if cache_exists:
-                status_text = "(Using TRUE KV Cache)" # Updated text
-                status_color = "green"
-            elif cache_path_str: # Cache selected but not found or error checking
-                status_text = "(Fallback: Cache Missing/Error)"
-                status_color = "red"
-            else: # No cache selected
-                # No specific cache selected, but 'Use KV Cache' is ticked.
-                # Assume the engine falls back to the master cache if available.
-                status_text = "(Fallback: Using Master Cache)" # More informative text
-                status_color = "orange" # Keep orange to indicate fallback status
-                cache_name = "Master (Default)" # Update name label for clarity
-        else: # Cache usage disabled
-            status_text = "(Disabled - Fallback)"
-            status_color = "gray"
-            # Keep showing cache name if one was selected, otherwise show None
-            cache_name = cache_name if cache_path_str else "None"
-
-        # Update UI elements
         self.cache_name_label.setText(f"Cache: {cache_name}")
-        self.cache_effective_status_label.setText(status_text)
-        self.cache_effective_status_label.setStyleSheet(f"color: {status_color};")
 
-        logging.debug(f"Cache status display updated. Status: {status_text}")
+        # --- Update Warmup Button State ---
+        can_warmup_now = self._can_warmup()
+        is_currently_warming = "Warming Up" in self.cache_effective_status_label.text() # Check current status text
 
-        # Ensure checkbox reflects engine state
-        # Block signals temporarily to prevent recursion if setChecked triggers stateChanged
+        if self.chat_engine.warmed_cache_path == cache_path_str and cache_exists:
+             # Correct cache is warmed up
+             self.warmup_button.setText("Unload Cache")
+             self.warmup_button.setEnabled(True)
+        elif is_currently_warming:
+             # Operation in progress
+             self.warmup_button.setText("Warming Up...")
+             self.warmup_button.setEnabled(False)
+        else:
+             # Not warmed up or wrong cache warmed up
+             self.warmup_button.setText("Warm Up Cache")
+             self.warmup_button.setEnabled(can_warmup_now) # Enable only if possible
+
+        # --- Update Status Label (Handled by on_cache_status_changed) ---
+        # The specific status label (Idle, Warming Up, Warmed Up, etc.)
+        # is now updated primarily by the on_cache_status_changed slot.
+        # We might call it here just to ensure consistency if needed,
+        # but it might cause redundant updates. Let's rely on the signal for now.
+        # self.on_cache_status_changed(self.chat_engine.get_current_cache_status()) # Needs engine method
+
+        # --- Update Performance Labels (If not warmed up, clear them) ---
+        if not (self.chat_engine.warmed_cache_path == cache_path_str and cache_exists):
+             self.load_time_label.setText("N/A")
+             self.tokens_label.setText("N/A")
+             self.file_size_label.setText("N/A")
+
+        # --- Ensure Checkbox Reflects Engine State ---
+        use_cache = self.chat_engine.use_kv_cache
         self.cache_toggle.blockSignals(True)
         self.cache_toggle.setChecked(use_cache)
         self.cache_toggle.blockSignals(False)
+
+        logging.debug(f"Cache status display updated. Selected: '{cache_name}', Warmed: '{Path(self.chat_engine.warmed_cache_path).name if self.chat_engine.warmed_cache_path else 'None'}'")
