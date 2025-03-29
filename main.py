@@ -74,8 +74,8 @@ def main():
     cache_manager = CacheManager(config)
     n8n_interface = N8nInterface(config)
     # Initialize dependent components
-    document_processor = DocumentProcessor(config, llama_manager, model_manager, cache_manager)
-    chat_engine = ChatEngine(config, llama_manager, model_manager, cache_manager)
+    document_processor = DocumentProcessor(config_manager, llama_manager, model_manager, cache_manager) # Pass config_manager
+    chat_engine = ChatEngine(config_manager, llama_manager, model_manager, cache_manager) # Pass config_manager
     # Check if llama.cpp is installed
     if not llama_manager.is_installed():
         response = QMessageBox.question(

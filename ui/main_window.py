@@ -38,7 +38,8 @@ class MainWindow(QMainWindow):
         self.model_manager = model_manager
         self.cache_manager = cache_manager
         self.document_processor = document_processor
-        self.chat_engine = chat_engine
+        # Pass the config_manager instance, not the dict
+        self.chat_engine = ChatEngine(self.config_manager, self.llama_manager, self.model_manager, self.cache_manager)
         self.n8n_interface = n8n_interface
 
         # Set up UI
@@ -297,10 +298,10 @@ class MainWindow(QMainWindow):
         # Update components with new config
         self.llama_manager.update_config(self.config)
         self.model_manager.update_config(self.config)
-        self.cache_manager.update_config(self.config)
-        self.document_processor.update_config(self.config) if hasattr(self.document_processor, 'update_config') else None
-        self.chat_engine.update_config(self.config) if hasattr(self.chat_engine, 'update_config') else None
-        self.n8n_interface.update_config(self.config) if hasattr(self.n8n_interface, 'update_config') else None
+        self.cache_manager.update_config(self.config_manager) # Pass instance
+        self.document_processor.update_config(self.config_manager) if hasattr(self.document_processor, 'update_config') else None # Pass instance
+        self.chat_engine.update_config(self.config_manager) if hasattr(self.chat_engine, 'update_config') else None # Pass instance
+        self.n8n_interface.update_config(self.config_manager) if hasattr(self.n8n_interface, 'update_config') else None # Pass instance
 
         # Update status
         self.update_status()

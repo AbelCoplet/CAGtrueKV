@@ -170,9 +170,14 @@ class SettingsTab(QWidget):
             "Set to 0 to use CPU only."
         )
         model_layout.addRow("GPU Layers:", self.gpu_layers_spin)
-        
+
+        # Add Troubleshooting section with Analyze button
+        self.analyze_button = QPushButton("Analyze Model Token Patterns")
+        self.analyze_button.setToolTip("Run a test generation to analyze token output patterns (useful for debugging).")
+        model_layout.addRow("Troubleshooting:", self.analyze_button)
+
         layout.addWidget(model_group)
-        
+
         # n8n settings group
         n8n_group = QGroupBox("n8n Integration")
         n8n_layout = QFormLayout(n8n_group)
@@ -239,7 +244,10 @@ class SettingsTab(QWidget):
         # Update buttons
         self.check_updates_button.clicked.connect(self.check_for_updates)
         self.update_button.clicked.connect(self.update_llama_cpp)
-        
+
+        # Connect Analyze button
+        self.analyze_button.clicked.connect(self.analyze_model_output_patterns)
+
     def load_settings(self):
         """Load settings from config"""
         # Paths
@@ -451,3 +459,20 @@ class SettingsTab(QWidget):
         
         # Check for updates again
         self.check_for_updates()
+
+    def analyze_model_output_patterns(self):
+        """Placeholder: Run a token pattern analysis to identify potential issues"""
+        # TODO: Implement actual analysis logic, potentially in a separate thread
+        # For now, just show a message box
+        QMessageBox.information(
+            self,
+            "Analyze Model Output",
+            "This feature is not yet fully implemented.\n"
+            "It will eventually run a test generation to analyze token patterns."
+        )
+        # Example of how to start analysis in a thread (when implemented):
+        # progress = QProgressDialog("Analyzing model output patterns...", "Cancel", 0, 0, self)
+        # progress.setWindowTitle("Model Analysis")
+        # progress.setWindowModality(Qt.WindowModal)
+        # progress.show()
+        # # Create and start worker thread...

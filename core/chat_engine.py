@@ -38,10 +38,10 @@ class ChatEngine(QObject):
     cache_unloaded = pyqtSignal()
     cache_status_changed = pyqtSignal(str) # Specific status for chat tab: Idle, Warming Up, Warmed Up, Unloading, Error
 
-    def __init__(self, config, llama_manager, model_manager, cache_manager):
+    def __init__(self, config_manager, llama_manager, model_manager, cache_manager): # Changed config to config_manager
         """Initialize chat engine"""
         super().__init__()
-        self.config = config
+        self.config_manager = config_manager # Changed self.config to self.config_manager
         self.llama_manager = llama_manager
         self.model_manager = model_manager
         self.cache_manager = cache_manager
@@ -60,11 +60,17 @@ class ChatEngine(QObject):
         self._lock = threading.Lock() # Protect access to persistent_llm and related state
 
         # Config setting for true KV cache logic
-        self.use_true_kv_cache_logic = self.config.get('USE_TRUE_KV_CACHE', True)
+        self.use_true_kv_cache_logic = self.config_manager.get('USE_TRUE_KV_CACHE', True) # Use config_manager
         # Fresh Context Mode setting
-        self.fresh_context_mode = self.config.get('USE_FRESH_CONTEXT', False) # Default to False
+        self.fresh_context_mode = self.config_manager.get('USE_FRESH_CONTEXT', False) # Use config_manager
+        self.debug_token_generation = False # Toggle for detailed token debugging
         logging.info(f"ChatEngine initialized. True KV Cache Logic: {self.use_true_kv_cache_logic}, Fresh Context Mode: {self.fresh_context_mode}")
 
+    # Add a method to toggle debugging
+    def toggle_token_debugging(self, enabled: bool):
+        """Enable or disable detailed token generation debugging"""
+        self.debug_token_generation = enabled
+        logging.info(f"Token generation debugging {'enabled' if enabled else 'disabled'}")
 
     def set_kv_cache(self, kv_cache_path: Optional[Union[str, Path]]):
         """Set the current KV cache path to use"""
@@ -104,7 +110,7 @@ class ChatEngine(QObject):
     def enable_fresh_context_mode(self, enabled: bool):
         """Enable or disable Fresh Context Mode."""
         with self._lock: # Ensure thread safety when changing mode
-            self.config['USE_FRESH_CONTEXT'] = enabled # Update runtime config
+            self.config_manager.set('USE_FRESH_CONTEXT', enabled) # Update runtime config using config_manager.set
             self.fresh_context_mode = enabled
             logging.info(f"Fresh Context Mode {'enabled' if enabled else 'disabled'}")
             # Emit status change to update UI elements potentially
@@ -176,9 +182,9 @@ class ChatEngine(QObject):
                 if not self.persistent_llm:
                     logging.info(f"Loading model for warm-up: {required_model_path}")
                     self.status_updated.emit("Loading model...") # Update main status bar
-                    threads = int(self.config.get('LLAMACPP_THREADS', os.cpu_count() or 4))
-                    batch_size = int(self.config.get('LLAMACPP_BATCH_SIZE', 512))
-                    gpu_layers = int(self.config.get('LLAMACPP_GPU_LAYERS', 0))
+                    threads = int(self.config_manager.get('LLAMACPP_THREADS', os.cpu_count() or 4)) # Use config_manager
+                    batch_size = int(self.config_manager.get('LLAMACPP_BATCH_SIZE', 512)) # Use config_manager
+                    gpu_layers = int(self.config_manager.get('LLAMACPP_GPU_LAYERS', 0)) # Use config_manager
 
                     self.persistent_llm = Llama(
                         model_path=required_model_path,
@@ -287,7 +293,7 @@ class ChatEngine(QObject):
         """
         # --- Get Context Window Size ---
         context_size = 4096 # Default fallback
-        model_id = self.config.get('CURRENT_MODEL_ID')
+        model_id = self.config_manager.get('CURRENT_MODEL_ID') # Use config_manager
         if model_id:
             model_info = self.model_manager.get_model_info(model_id)
             if model_info:
@@ -373,6 +379,7 @@ class ChatEngine(QObject):
         llm_instance_to_use = None # Will hold either persistent or temporary llm
         model_path = None
         context_window = 4096 # Default
+        model_id = self.config_manager.get('CURRENT_MODEL_ID') # Use config_manager
 
         # Check conditions for using persistent instance (outside lock initially)
         should_try_persistent = (self.use_kv_cache and
@@ -422,7 +429,7 @@ class ChatEngine(QObject):
                      context_window = llm_instance_to_use.n_ctx()
                  except Exception as e_ctx:
                      logging.warning(f"Could not get n_ctx from persistent instance: {e_ctx}. Using config value.")
-                     model_id = self.config.get('CURRENT_MODEL_ID')
+                     # model_id already fetched from config_manager
                      model_info = self.model_manager.get_model_info(model_id) if model_id else None
                      context_window = model_info.get('context_window', 4096) if model_info else 4096
                  logging.info(f"Will use persistent {'(fresh context reset)' if self.fresh_context_mode else 'warmed-up'} instance. Model: {model_path}, Cache: {self.warmed_cache_path}")
@@ -430,7 +437,7 @@ class ChatEngine(QObject):
         # If not using persistent, get info for temporary load
         if not use_persistent_instance:
             logging.info("Will use temporary instance or fallback.")
-            model_id = self.config.get('CURRENT_MODEL_ID')
+            # model_id already fetched from config_manager
             if not model_id:
                 self.error_occurred.emit("No model selected in configuration.")
                 return False
@@ -453,7 +460,7 @@ class ChatEngine(QObject):
                  logging.info(f"Target cache for inference: {actual_kv_cache_path_for_inference}")
             else:
                  # Try master cache if specific one is missing/not selected but toggle is on
-                 master_cache_path_str = self.config.get('MASTER_KV_CACHE_PATH')
+                 master_cache_path_str = self.config_manager.get('MASTER_KV_CACHE_PATH') # Use config_manager
                  if master_cache_path_str and Path(master_cache_path_str).exists():
                      actual_kv_cache_path_for_inference = str(master_cache_path_str)
                      logging.info(f"Using master KV cache for inference: {actual_kv_cache_path_for_inference}")
@@ -482,7 +489,7 @@ class ChatEngine(QObject):
         # Pass the max_tokens value from the UI
         inference_thread = threading.Thread(
             target=target_thread_func,
-            args=(message, model_path, context_window, actual_kv_cache_path_for_inference, max_tokens, temperature, llm_arg),
+            args=(message, model_path, model_id, context_window, actual_kv_cache_path_for_inference, max_tokens, temperature, llm_arg), # Added model_id
             daemon=True,
         )
         # Emit signal *before* starting thread so UI can disable input
@@ -493,8 +500,8 @@ class ChatEngine(QObject):
 
 
     # --- Inference thread with true KV cache logic ---
-    # Modified to accept optional pre-loaded llm instance
-    def _inference_thread_with_true_kv_cache(self, message: str, model_path: str, context_window: int,
+    # Modified to accept optional pre-loaded llm instance and model_id
+    def _inference_thread_with_true_kv_cache(self, message: str, model_path: str, model_id: str, context_window: int,
                          kv_cache_path: Optional[str], max_tokens: int, temperature: float, llm: Optional[Llama] = None):
         """
         Thread function for model inference using true KV cache loading.
@@ -510,6 +517,19 @@ class ChatEngine(QObject):
         generated_eos = False # Flag to track if EOS was naturally generated
 
         try:
+            # --- Get Model-Specific Configuration ---
+            # Use the passed model_id, fallback to config_manager if None (shouldn't happen ideally)
+            current_model_id = model_id if model_id else self.config_manager.get('CURRENT_MODEL_ID', 'unknown') # Use config_manager
+            model_config = self.config_manager.get_model_specific_config(current_model_id) # Use config_manager
+            logging.info(f"Using model-specific config for '{current_model_id}': {model_config}")
+
+            # Extract config values for easier use
+            eos_detection_method = model_config.get('eos_detection_method', 'default')
+            additional_stop_tokens = set(model_config.get('additional_stop_tokens', [])) # Use a set for faster lookup
+            stop_on_repetition = model_config.get('stop_on_repetition', True)
+            max_no_output = model_config.get('max_empty_tokens', 50)
+            repeat_threshold = model_config.get('repetition_threshold', 2)
+
             # --- Acquire lock ONLY if using the persistent instance ---
             if is_using_persistent_llm:
                 logging.debug("Attempting to acquire lock for persistent LLM in true KV thread.")
@@ -537,9 +557,9 @@ class ChatEngine(QObject):
                 if not Path(abs_model_path).exists():
                     raise FileNotFoundError(f"Model file not found: {abs_model_path}")
 
-                threads = int(self.config.get('LLAMACPP_THREADS', os.cpu_count() or 4))
-                batch_size = int(self.config.get('LLAMACPP_BATCH_SIZE', 512))
-                gpu_layers = int(self.config.get('LLAMACPP_GPU_LAYERS', 0))
+                threads = int(self.config_manager.get('LLAMACPP_THREADS', os.cpu_count() or 4)) # Use config_manager
+                batch_size = int(self.config_manager.get('LLAMACPP_BATCH_SIZE', 512)) # Use config_manager
+                gpu_layers = int(self.config_manager.get('LLAMACPP_GPU_LAYERS', 0)) # Use config_manager
 
                 temp_llm = Llama(
                     model_path=abs_model_path, n_ctx=context_window, n_threads=threads,
@@ -555,11 +575,12 @@ class ChatEngine(QObject):
                     # --- Check Cache Compatibility Before Loading Temporarily ---
                     cache_info = self.cache_manager.get_cache_info(kv_cache_path)
                     cache_model_id = cache_info.get('model_id') if cache_info else None
-                    current_model_id = self.config.get('CURRENT_MODEL_ID') # Model being loaded temporarily
-
-                    if cache_model_id and current_model_id and cache_model_id != current_model_id:
-                        logging.warning(f"Cache '{Path(kv_cache_path).name}' was created with model '{cache_model_id}', but current model is '{current_model_id}'. Skipping temporary load_state.")
-                        self.error_occurred.emit(f"Cache incompatible with current model ({current_model_id}).") # Notify user
+                    # Use the current_model_id determined earlier for comparison
+                    # Also check against config_manager's idea of current model if loading temp
+                    temp_load_model_id = self.config_manager.get('CURRENT_MODEL_ID')
+                    if cache_model_id and temp_load_model_id and cache_model_id != temp_load_model_id:
+                        logging.warning(f"Cache '{Path(kv_cache_path).name}' was created with model '{cache_model_id}', but current model is '{temp_load_model_id}'. Skipping temporary load_state.")
+                        self.error_occurred.emit(f"Cache incompatible with current model ({temp_load_model_id}).") # Notify user
                         # Proceed without loading state
                     else:
                         # Proceed with loading state if compatible or compatibility unknown
@@ -594,11 +615,23 @@ class ChatEngine(QObject):
             logging.info("Input tokens evaluated.")
 
             # --- Generate response using low-level token sampling ---
-            logging.info(f"Generating response using low-level token sampling (max_tokens={max_tokens})") # Log max_tokens
+            logging.info(f"Generating response using low-level token sampling (max_tokens={max_tokens})")
             eos_token = llm.token_eos()
-            logging.debug(f"EOS token ID: {eos_token} (type: {type(eos_token)})") # Log EOS token ID and type
+            logging.debug(f"EOS token ID: {eos_token} (type: {type(eos_token)})")
             tokens_generated = []
-            # response_text = "" # Moved initialization up
+            # response_text = "" # Initialized earlier
+
+            # Track potential stopping conditions (initialize based on config)
+            generated_eos = False
+            consecutive_repeats = 0
+            # repeat_threshold = 2 # Now loaded from model_config
+            no_output_tokens = 0  # Count tokens that don't produce visible output
+            # max_no_output = 50    # Now loaded from model_config
+            last_response_length = 0
+
+            # Combine standard EOS with additional stop tokens
+            stop_token_ids = {int(eos_token)} | {int(t) for t in additional_stop_tokens} # Ensure all are ints
+            logging.debug(f"Effective stop token IDs: {stop_token_ids}")
 
             # Use the max_tokens value passed into the function
             for i in range(max_tokens):
@@ -607,37 +640,139 @@ class ChatEngine(QObject):
                 if i >= max_tokens - 20: # Log last 20 tokens sampled
                     logging.debug(f"Sampled token ID at step {i}: {token_id} (type: {type(token_id)})")
 
-                # Ensure comparison is between integers
-                if int(token_id) == int(eos_token):
-                    logging.info(f"EOS token encountered at step {i}.")
+                # Enhanced EOS detection using model_config
+                is_eos = False
+                try:
+                    token_id_int = int(token_id) # Convert once for comparisons
+
+                    # Primary check: Is the token in our combined stop set?
+                    if token_id_int in stop_token_ids:
+                        logging.debug(f"Stop token {token_id_int} encountered based on stop_token_ids set.")
+                        is_eos = True
+
+                    # Apply model-specific methods if needed (e.g., 'gemma' might have unique logic)
+                    elif eos_detection_method == 'gemma':
+                        # Add any Gemma-specific checks here if necessary
+                        # For now, relying on additional_stop_tokens is likely sufficient
+                        pass
+                    elif eos_detection_method == 'strict':
+                        # Only check against the official EOS token
+                        is_eos = (token_id_int == int(eos_token))
+                    elif eos_detection_method == 'flexible':
+                        # Add more lenient checks if needed (e.g., string comparison)
+                        if str(token_id).strip() == str(eos_token).strip():
+                             is_eos = True
+                    # Default behavior already covered by stop_token_ids check
+
+                except ValueError:
+                    logging.warning(f"Could not convert sampled token ID '{token_id}' to int for EOS check.")
+                except Exception as e:
+                    logging.error(f"Unexpected error during EOS detection: {e}")
+
+                if is_eos:
+                    logging.info(f"Stop token encountered at step {i} (ID: {token_id}). Method: {eos_detection_method}.")
                     generated_eos = True
-                    break # Exit the loop immediately
+                    break  # Exit the loop immediately
 
+                # Add token to generated list
                 tokens_generated.append(token_id)
-                llm.eval([token_id]) # Evaluate the generated token
 
-                # Emit chunks periodically
-                if (i + 1) % 8 == 0:
-                     current_text = llm.detokenize(tokens_generated).decode('utf-8', errors='replace')
-                     new_text = current_text[len(response_text):]
-                     if new_text:
-                         self.response_chunk.emit(new_text)
-                         response_text = current_text
-                     QCoreApplication.processEvents()
+                # --- Debug Logging ---
+                if self.debug_token_generation and i < 200:  # Limit to first 200 tokens to avoid log bloat
+                    try:
+                        # Use a temporary list to avoid modifying the main list for detokenization
+                        token_text = llm.detokenize([token_id]).decode('utf-8', errors='replace')
+                        # Sanitize token text for logging (replace control characters)
+                        sanitized_text = ''.join(c if c.isprintable() else f'\\x{ord(c):02x}' for c in token_text)
+                        logging.debug(f"Token {i}: ID={token_id}, Text='{sanitized_text}', Hex={hex(token_id)}")
+                    except Exception as debug_e:
+                        logging.debug(f"Token {i}: ID={token_id}, (Error detokenizing: {debug_e})")
+                # --- End Debug Logging ---
 
-            # Ensure final text is emitted
+                llm.eval([token_id])
+
+                # Periodically check the output text to detect repetition or lack of progress
+                # Check more frequently, e.g., every 8 tokens, or near the end
+                check_interval = 8
+                if (i + 1) % check_interval == 0 or i >= max_tokens - 20:
+                    current_text = llm.detokenize(tokens_generated).decode('utf-8', errors='replace')
+                    new_text = current_text[len(response_text):]
+
+                    # Check for no new content (only whitespace or empty)
+                    if not new_text.strip():
+                        no_output_tokens += check_interval # Approximate since we check periodically
+                        if no_output_tokens >= max_no_output:
+                            logging.info(f"No meaningful output for ~{no_output_tokens} tokens. Stopping early at step {i}.")
+                            break
+                    else:
+                        no_output_tokens = 0  # Reset counter when we get new content
+
+                    # Check for repeated content (identical chunks) - Use model_config setting
+                    if stop_on_repetition and current_text and len(current_text) > 20:
+                        # Check for repetitions by comparing the last two equal-length chunks
+                        # Make chunk size dynamic but reasonable
+                        check_len = min(max(20, len(current_text) // 4), 100) # Check 25% up to 100 chars
+                        if len(current_text) >= 2 * check_len: # Ensure enough text for comparison
+                            last_chunk = current_text[-check_len:]
+                            previous_chunk = current_text[-2*check_len:-check_len]
+                            if last_chunk == previous_chunk and last_chunk.strip(): # Avoid stopping on repeated whitespace
+                                consecutive_repeats += 1
+                                logging.debug(f"Repetition detected ({consecutive_repeats}/{repeat_threshold}) at step {i}. Chunks: '{previous_chunk}' == '{last_chunk}'")
+                                if consecutive_repeats >= repeat_threshold:
+                                    logging.info(f"Repetitive output detected ({consecutive_repeats} times >= threshold {repeat_threshold}) at step {i}. Stopping early.")
+                                    break
+                            else:
+                                consecutive_repeats = 0 # Reset if chunks differ
+                    elif not stop_on_repetition:
+                         consecutive_repeats = 0 # Ensure counter is reset if check is disabled
+
+                    # Emit chunk and update response text
+                    if new_text:
+                        self.response_chunk.emit(new_text)
+                        response_text = current_text
+
+                    # Check for silent end of generation: response length hasn't changed for a while
+                    # This is partially covered by no_output_tokens check now
+                    # if i > 50 and len(current_text) == last_response_length:
+                    #     no_output_tokens += check_interval # Increment here too? Maybe redundant
+                    # else:
+                    #     last_response_length = len(current_text)
+
+                    QCoreApplication.processEvents()
+
+                # Additional early stopping criteria: Token repetition loop (use config)
+                # Check if stop_on_repetition is enabled, as this covers a similar case
+                if stop_on_repetition and i > 100 and len(tokens_generated) >= 5:
+                    last_5_tokens = tokens_generated[-5:]
+                    # Check if all last 5 tokens are identical AND not the EOS/stop tokens
+                    # (Avoid stopping if the model correctly outputs multiple EOS tokens)
+                    try: # Add try-except for int conversion
+                        first_token_int = int(last_5_tokens[0]) # Convert first token once
+                        if first_token_int not in stop_token_ids and all(int(t) == first_token_int for t in last_5_tokens):
+                            logging.info(f"Detected token repetition loop (token ID: {first_token_int}) at step {i}. Stopping early.")
+                            break
+                    except ValueError:
+                         logging.warning(f"Could not convert token ID {last_5_tokens[0]} to int for loop check.")
+
+
+            # Ensure final text is emitted (if loop finished or broke early)
             final_text = llm.detokenize(tokens_generated).decode('utf-8', errors='replace')
             if len(final_text) > len(response_text):
                  self.response_chunk.emit(final_text[len(response_text):])
             response_text = final_text
 
-            # Check if truncated
-            # Use the max_tokens value passed into the function
+            # Check if truncated (only if EOS wasn't the reason for stopping)
             if not generated_eos and len(tokens_generated) >= max_tokens:
                 truncation_msg = f" [... response truncated at {max_tokens} tokens]"
                 logging.warning(f"Response truncated at {max_tokens} tokens.")
                 response_text += truncation_msg
                 self.response_chunk.emit(truncation_msg) # Emit the truncation message as a final chunk
+            elif not generated_eos:
+                 # If we stopped early due to other conditions (repetition, no output)
+                 logging.info(f"Response generation stopped early at step {i} due to stopping conditions (not EOS or max_tokens).")
+                 # Optionally add a note? e.g., "[stopped due to repetition]"
+                 # response_text += " [stopped early]"
+                 # self.response_chunk.emit(" [stopped early]")
 
             logging.info(f"Generated response with {len(tokens_generated)} tokens. EOS generated: {generated_eos}")
 
@@ -732,9 +867,9 @@ class ChatEngine(QObject):
                 abs_model_path = str(Path(model_path).resolve())
                 if not Path(abs_model_path).exists():
                     raise FileNotFoundError(f"Model file not found: {abs_model_path}")
-                threads = int(self.config.get('LLAMACPP_THREADS', os.cpu_count() or 4))
-                batch_size = int(self.config.get('LLAMACPP_BATCH_SIZE', 512))
-                gpu_layers = int(self.config.get('LLAMACPP_GPU_LAYERS', 0))
+                threads = int(self.config_manager.get('LLAMACPP_THREADS', os.cpu_count() or 4)) # Use config_manager
+                batch_size = int(self.config_manager.get('LLAMACPP_BATCH_SIZE', 512)) # Use config_manager
+                gpu_layers = int(self.config_manager.get('LLAMACPP_GPU_LAYERS', 0)) # Use config_manager
                 temp_llm = Llama(
                     model_path=abs_model_path, n_ctx=context_window, n_threads=threads,
                     n_batch=batch_size, n_gpu_layers=gpu_layers, verbose=False
@@ -871,7 +1006,7 @@ class ChatEngine(QObject):
             with open(file_path, 'w') as f:
                 json.dump({
                     "history": self.history,
-                    "model_id": self.config.get('CURRENT_MODEL_ID'),
+                    "model_id": self.config_manager.get('CURRENT_MODEL_ID'), # Use config_manager
                     "kv_cache_path": self.current_kv_cache_path,
                     "timestamp": time.time(),
                     "use_kv_cache_setting": self.use_kv_cache,
@@ -907,9 +1042,9 @@ class ChatEngine(QObject):
             logging.error(f"Failed to load chat history: {str(e)}")
             return False
 
-    def update_config(self, config):
-        self.config = config
-        # Update settings from config
-        self.use_true_kv_cache_logic = self.config.get('USE_TRUE_KV_CACHE', True)
-        self.fresh_context_mode = self.config.get('USE_FRESH_CONTEXT', self.fresh_context_mode) # Update if in config, else keep current
+    def update_config(self, config_manager): # Changed config to config_manager
+        self.config_manager = config_manager # Changed self.config to self.config_manager
+        # Update settings from config_manager
+        self.use_true_kv_cache_logic = self.config_manager.get('USE_TRUE_KV_CACHE', True) # Use config_manager
+        self.fresh_context_mode = self.config_manager.get('USE_FRESH_CONTEXT', self.fresh_context_mode) # Use config_manager
         logging.info(f"ChatEngine configuration updated. True KV Cache Logic: {self.use_true_kv_cache_logic}, Fresh Context Mode: {self.fresh_context_mode}")
