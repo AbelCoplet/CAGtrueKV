@@ -85,7 +85,7 @@ class ChatTab(QWidget):
         help_icon = QApplication.style().standardIcon(QStyle.SP_MessageBoxQuestion)
         pixmap = help_icon.pixmap(QSize(16, 16))
         # Attempt to style the label - might not affect the standard icon color
-        self.cache_status_help_icon.setStyleSheet("color: white;") 
+        self.cache_status_help_icon.setStyleSheet("color: white;")
         self.cache_status_help_icon.setPixmap(pixmap)
         self.cache_status_help_icon.setFixedSize(16, 16)
         self.cache_status_help_icon.setToolTip(
@@ -111,6 +111,22 @@ class ChatTab(QWidget):
         self.warmup_button.setEnabled(False) # Disabled initially
         cache_status_layout.addWidget(self.warmup_button)
 
+        # Fresh Context Mode checkbox
+        self.fresh_context_checkbox = QCheckBox("Fresh Context Mode")
+        self.fresh_context_checkbox.setToolTip(
+            "When enabled, each query uses a fresh copy of the document context,\n"
+            "preventing conversation history from accumulating in the model's memory.\n"
+            "Crucial for stability with large documents."
+        )
+        # Initialize from engine state later in initialize_state
+        cache_status_layout.addWidget(self.fresh_context_checkbox)
+
+        # Add Reset Button
+        self.reset_button = QPushButton("Reset Engine")
+        self.reset_button.setToolTip("Reset the chat engine to its initial state (unloads model).")
+        cache_status_layout.addWidget(self.reset_button)
+
+
         layout.addWidget(cache_status_group)
         # --- End Cache Status Section ---
 
@@ -135,6 +151,17 @@ class ChatTab(QWidget):
 
         layout.addLayout(input_layout)
 
+        # --- Chat Controls ---
+        chat_controls_layout = QHBoxLayout()
+        chat_controls_layout.addStretch() # Push button to the right
+
+        self.clear_chat_button = QPushButton("Clear Chat")
+        self.clear_chat_button.setToolTip("Clear the chat history display (does not affect model memory).")
+        chat_controls_layout.addWidget(self.clear_chat_button)
+
+        layout.addLayout(chat_controls_layout)
+        # --- End Chat Controls ---
+
         # --- Cache Performance Section ---
         perf_group = QGroupBox("Cache Performance")
         perf_layout = QFormLayout(perf_group)
@@ -149,6 +176,23 @@ class ChatTab(QWidget):
 
         layout.addWidget(perf_group)
         # --- End Cache Performance Section ---
+
+        # --- Generation Settings ---
+        gen_settings_group = QGroupBox("Generation Settings")
+        gen_settings_layout = QHBoxLayout(gen_settings_group)
+
+        gen_settings_layout.addWidget(QLabel("Max Response Tokens:"))
+        self.max_tokens_spinbox = QSpinBox()
+        self.max_tokens_spinbox.setRange(64, 8192) # Set a reasonable range
+        self.max_tokens_spinbox.setValue(1024) # Default value
+        self.max_tokens_spinbox.setSingleStep(64)
+        self.max_tokens_spinbox.setToolTip("Maximum number of tokens the model should generate for a response.")
+        gen_settings_layout.addWidget(self.max_tokens_spinbox)
+        gen_settings_layout.addStretch()
+
+        layout.addWidget(gen_settings_group)
+        # --- End Generation Settings ---
+
 
     def connect_signals(self):
         """Connect signals between components"""
@@ -165,6 +209,7 @@ class ChatTab(QWidget):
         self.chat_engine.cache_warmed_up.connect(self.on_cache_warmed_up)
         self.chat_engine.cache_unloaded.connect(self.on_cache_unloaded)
         self.chat_engine.cache_status_changed.connect(self.on_cache_status_changed) # Connect specific status signal
+        self.chat_engine.response_started.connect(self.on_response_started) # Connect start signal
 
         # Cache toggle signal
         self.cache_toggle.stateChanged.connect(self.on_cache_toggle_changed)
@@ -175,11 +220,24 @@ class ChatTab(QWidget):
         # Cache Manager signal (to detect external deletions or updates)
         self.cache_manager.cache_list_updated.connect(self.update_cache_status_display)
 
+        # Chat controls
+        self.clear_chat_button.clicked.connect(self.clear_chat_display)
+
+        # Fresh Context Mode toggle
+        self.fresh_context_checkbox.stateChanged.connect(self.toggle_fresh_context_mode)
+
+        # Reset button
+        self.reset_button.clicked.connect(self.reset_engine)
+
 
     def initialize_state(self):
         """Initialize UI state from current settings"""
         self.update_cache_status_display() # Update cache status on init
         self.on_cache_status_changed("Idle") # Initialize specific status
+        # Initialize Fresh Context checkbox state
+        self.fresh_context_checkbox.blockSignals(True)
+        self.fresh_context_checkbox.setChecked(self.chat_engine.fresh_context_mode)
+        self.fresh_context_checkbox.blockSignals(False)
 
     def send_message(self):
         """Send the user's message to the chat engine"""
@@ -193,15 +251,28 @@ class ChatTab(QWidget):
         # Clear input field
         self.user_input.clear()
 
+        # Get generation parameters from UI
+        max_tokens = self.max_tokens_spinbox.value()
+        # temperature = self.temperature_slider.value() / 100.0 # Example if temp slider existed
+
         # Send to chat engine
         try:
-            self.chat_engine.send_message(message)
-            # Status update is now handled by ChatEngine signal
-            # self.update_status("Sending message...")
-            self.send_button.setEnabled(False) # Disable button while processing
-            # self.user_input.setEnabled(False) # Keep input enabled
+            # Disable input immediately (response_started signal will also do this, but belt-and-suspenders)
+            self.set_input_enabled(False)
+            # Pass max_tokens from UI to the engine
+            if not self.chat_engine.send_message(message, max_tokens=max_tokens):
+                 # If send_message returns False (e.g., safety check failed), re-enable input
+                 self.set_input_enabled(True)
+            # Otherwise, input remains disabled until response_complete or error_occurred
         except Exception as e:
             self.display_error(f"Failed to send message: {e}")
+            self.set_input_enabled(True) # Re-enable on exception
+
+    # Slot for response started signal
+    @pyqtSlot()
+    def on_response_started(self):
+        """Disable input when response generation starts."""
+        self.set_input_enabled(False)
 
     # Slot for response chunks
     @pyqtSlot(str)
@@ -234,9 +305,7 @@ class ChatTab(QWidget):
             # Error message is handled by display_error
             pass # Error already displayed by display_error signal
 
-        self.send_button.setEnabled(True) # Re-enable button
-        # self.user_input.setEnabled(True) # Keep input enabled
-        self.user_input.setFocus() # Set focus back to input
+        self.set_input_enabled(True) # Re-enable input on completion
 
     @pyqtSlot(str)
     def display_error(self, error_message: str):
@@ -244,9 +313,15 @@ class ChatTab(QWidget):
         self.append_message("Error", error_message, color=QColor("red"))
         # Status is updated by ChatEngine signal ("Error") -> cache_status_changed("Error")
         logging.error(f"Chat Error: {error_message}")
-        self.send_button.setEnabled(True) # Re-enable button on error
+        self.set_input_enabled(True) # Re-enable input on error
         self.warmup_button.setEnabled(self._can_warmup()) # Re-evaluate warmup button state
-        self.user_input.setFocus()
+
+    def set_input_enabled(self, enabled: bool):
+        """Enable or disable the user input field and send button."""
+        self.user_input.setEnabled(enabled)
+        self.send_button.setEnabled(enabled)
+        if enabled:
+            self.user_input.setFocus() # Set focus back when enabled
 
     def append_message(self, sender: str, message: str, color: QColor = None):
         """Append a formatted message (sender + content) to the chat history."""
@@ -278,8 +353,40 @@ class ChatTab(QWidget):
         cursor.insertText("\n")
 
 
-        # Ensure the view scrolls to the bottom
-        self.chat_history.ensureCursorVisible()
+        # Force scrolling to the bottom
+        scrollbar = self.chat_history.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
+        self.chat_history.ensureCursorVisible() # Keep this as well
+
+    @pyqtSlot()
+    def clear_chat_display(self):
+        """Clear the chat display area."""
+        self.chat_history.clear()
+        # Optionally add a system message indicating clearance
+        self.append_message("System", "Chat display cleared.", color=QColor("blue"))
+        logging.info("Chat display cleared by user.")
+
+    @pyqtSlot()
+    def reset_engine(self):
+        """Reset the chat engine to its initial state via button click."""
+        logging.info("Reset Engine button clicked.")
+        if self.chat_engine.reset_state():
+            self.append_message("System", "Chat engine has been reset.", color=QColor("blue"))
+            # Update UI elements to reflect the reset
+            self.update_cache_status_display()
+            # Clear performance labels explicitly as update_cache_status_display might not if cache name is still set
+            self.load_time_label.setText("N/A")
+            self.tokens_label.setText("N/A")
+            self.file_size_label.setText("N/A")
+        else:
+            self.append_message("Error", "Failed to reset chat engine.", color=QColor("red"))
+
+    @pyqtSlot(int)
+    def toggle_fresh_context_mode(self, state):
+        """Toggle Fresh Context Mode on or off."""
+        enabled = (state == Qt.Checked)
+        self.chat_engine.enable_fresh_context_mode(enabled)
+        # No need to update UI here, chat_engine signal will trigger status update
 
     @pyqtSlot(int)
     def on_cache_toggle_changed(self, state):
@@ -381,6 +488,15 @@ class ChatTab(QWidget):
              status_color = "blue" # Use a different color? Or just green? Let's use blue for distinction.
         elif status == "Fallback (Generating)":
              status_color = "orange"
+        # Handle Fresh Context status messages
+        elif "Fresh Context" in status:
+             if "Reset OK" in status or "Enabled" in status:
+                 status_color = "blue"
+             elif "Resetting" in status:
+                 status_color = "orange"
+             elif "Reset Failed" in status or "Disabled" in status:
+                 status_color = "gray" # Or maybe orange for failed? Let's stick with gray for disabled/failed reset.
+
 
         self.cache_effective_status_label.setText(f"({status})")
         self.cache_effective_status_label.setStyleSheet(f"color: {status_color};")
@@ -452,5 +568,12 @@ class ChatTab(QWidget):
         self.cache_toggle.blockSignals(True)
         self.cache_toggle.setChecked(use_cache)
         self.cache_toggle.blockSignals(False)
+
+        # --- Ensure Fresh Context Checkbox Reflects Engine State ---
+        fresh_context = self.chat_engine.fresh_context_mode
+        self.fresh_context_checkbox.blockSignals(True)
+        self.fresh_context_checkbox.setChecked(fresh_context)
+        self.fresh_context_checkbox.blockSignals(False)
+
 
         logging.debug(f"Cache status display updated. Selected: '{cache_name}', Warmed: '{Path(self.chat_engine.warmed_cache_path).name if self.chat_engine.warmed_cache_path else 'None'}'")
