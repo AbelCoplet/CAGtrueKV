@@ -4,10 +4,13 @@
 ![Main Chat](https://github.com/AbelCoplet/LlamaCagUI/blob/main/images/mainchat.png)
 ![Model Select](https://github.com/AbelCoplet/LlamaCagUI/blob/main/images/modelselect.png)
 
-LlamaCag UI Enhancement Plan
+# LlamaCag UI
+
+## Context-Augmented Generation for Large Language Models
+
+LlamaCag UI is a desktop application that enables context-augmented generation (CAG) with large language models. It allows you to feed entire documents into a language model's context window and ask questions that leverage that full context, creating an experience similar to chatting with your documents with unprecedented accuracy.
 
 ```markdown
-
 LlamaCagUI/
 ├── main.py                  # Application entry point, initializes all components
 ├── run.sh                   # Script to run the application with correct environment
@@ -51,17 +54,10 @@ LlamaCagUI/
 ```
 disregard the fixes folder, it's not used yet, it contains artifacts from debugging. you do not have to use or pull it.
 
-# LlamaCag UI
-
-## Context-Augmented Generation for Large Language Models
-
-LlamaCag UI is a desktop application that enables context-augmented generation (CAG) with large language models. It allows you to feed entire documents into a language model's context window and ask questions that leverage that full context, creating an experience similar to chatting with your documents with unprecedented accuracy.
-
 ## 📋 Table of Contents
 
 - [Core Concept](#core-concept)
 - [Key Features](#key-features)
-- [Screenshots](#screenshots)
 - [Installation](#installation)
 - [Usage Guide](#usage-guide)
 - [Technical Details](#technical-details)
@@ -87,6 +83,8 @@ This approach allows models like Gemma 3 and Llama 3 to efficiently utilize thei
 - **Document Processing**: Load documents and process them into true `llama.cpp` KV caches for efficient context augmentation
 - **Interactive Chat**: Chat with your documents, leveraging the pre-processed KV cache for fast responses
 - **KV Cache Monitor**: Track and manage your document KV caches
+- **Cache Warm-up**: Pre-load model and cache state into memory for near-instantaneous responses
+- **GPU Acceleration**: Configure GPU offloading for significantly improved performance (especially on Apple Silicon)
 - **Settings**: Configure paths, model parameters (threads, batch size, GPU layers), and application behavior
 
 ## 📷 Screenshots
@@ -101,21 +99,23 @@ This approach allows models like Gemma 3 and Llama 3 to efficiently utilize thei
 
 ### Prerequisites
 
-- macOS, Linux, or Windows with Python 3.8+
-- 16GB+ RAM recommended for optimal performance
-- Internet connection (for downloading models)
+- **Operating System**: macOS, Linux, or Windows with Python 3.8+
+- **Memory Requirements**:
+  - **Minimum**: 8GB RAM (limited to ~25K token documents)
+  - **Recommended**: 16GB RAM (handles documents up to ~75K tokens)
+  - **Optimal**: 32GB+ RAM (required for full 128K context window utilization)
+- **Disk Space**: At least 10GB for the application, llama.cpp, and models
+- **Internet Connection**: Required for downloading models
 
-### Memory Requirements
-
-- 8GB RAM: Limited to smaller documents (~25K tokens)
-- 16GB RAM: Handles documents up to ~75K tokens
-- 32GB+ RAM: Required for utilizing full 128K context window
+> **Note for Apple Silicon (M1/M2/M3/M4) Users:** LlamaCag UI supports GPU acceleration via Metal, which significantly improves performance. See the Performance Optimization section after installation.
 
 ### Quick Installation
 
+The easiest way to install LlamaCag UI is using the provided setup script:
+
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/LlamaCagUI.git
+git clone https://github.com/AbelCoplet/LlamaCagUI.git
 cd LlamaCagUI
 
 # Run the setup script
@@ -126,33 +126,106 @@ chmod +x setup_requirements.sh
 ./run.sh
 ```
 
+The setup script will:
+1. Install Homebrew (if not already installed)
+2. Install required system dependencies (git, cmake, make, python3, pyqt@5)
+3. Install Python packages (PyQt5, requests, python-dotenv, llama-cpp-python)
+4. Clone and build llama.cpp
+5. Create necessary directories for the application
+
 ### Manual Installation
 
-If you prefer to install manually:
+If you prefer to install manually or need more control over the installation process:
 
-1. **Install Python dependencies**:
-   ```bash
-   pip install PyQt5 requests python-dotenv llama-cpp-python
-   ```
+#### 1. Install System Dependencies
 
-2. **Set up llama.cpp**:
-   ```bash
-   mkdir -p ~/Documents/llama.cpp
-   git clone https://github.com/ggerganov/llama.cpp.git ~/Documents/llama.cpp
-   cd ~/Documents/llama.cpp
-   mkdir -p build
-   cd build
-   cmake ..
-   cmake --build . -j $(nproc)
-   mkdir -p ~/Documents/llama.cpp/models
-   ```
+**macOS**
+```bash
+# Install Homebrew if not already installed
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
-3. **Create necessary directories**:
-   ```bash
-   mkdir -p ~/.llamacag/logs
-   mkdir -p ~/cag_project/kv_caches
-   mkdir -p ~/cag_project/temp_chunks
-   ```
+# Install required packages
+brew install git cmake make python3 pyqt@5
+```
+
+**Linux (Ubuntu/Debian)**
+```bash
+sudo apt update
+sudo apt install git cmake make python3 python3-pip python3-pyqt5
+```
+
+**Windows**
+- Install [Git for Windows](https://gitforwindows.org/)
+- Install [CMake](https://cmake.org/download/)
+- Install [Python 3.8+](https://www.python.org/downloads/windows/)
+- Install [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)
+
+#### 2. Install Python Dependencies
+
+```bash
+pip install PyQt5 requests python-dotenv llama-cpp-python
+```
+
+**Optional Dependencies**
+```bash
+# For better token estimation and document handling
+pip install tiktoken PyPDF2 python-docx
+```
+
+#### 3. Set Up llama.cpp
+
+```bash
+# Create directory and clone repository
+mkdir -p ~/Documents/llama.cpp
+git clone https://github.com/ggerganov/llama.cpp.git ~/Documents/llama.cpp
+
+# Build llama.cpp
+cd ~/Documents/llama.cpp
+mkdir -p build
+cd build
+cmake ..
+cmake --build . -j $(nproc)  # Linux/macOS
+# For Windows: cmake --build . --config Release
+
+# Create models directory
+mkdir -p ~/Documents/llama.cpp/models
+```
+
+#### 4. Create Necessary Directories
+
+```bash
+mkdir -p ~/.llamacag/logs
+mkdir -p ~/cag_project/kv_caches
+mkdir -p ~/cag_project/temp_chunks
+```
+
+#### 5. Clone LlamaCag UI Repository
+
+```bash
+git clone https://github.com/AbelCoplet/LlamaCagUI.git
+cd LlamaCagUI
+```
+
+#### 6. Run the Application
+
+```bash
+./run.sh  # Linux/macOS
+# For Windows: python main.py
+```
+
+### Performance Optimization
+
+For optimal performance, especially with large documents:
+
+#### Apple Silicon (M1/M2/M3/M4) GPU Acceleration
+
+1. Go to the **Settings** tab after installation
+2. Set **GPU Layers** based on your system:
+   - For 4B models: Start with 15-20 layers
+   - For 8B models: Start with 10-15 layers
+   - Adjust based on performance and available memory
+3. Set **Threads** to match your CPU's performance core count
+4. Click **Save Settings**
 
 ## 📝 Usage Guide
 
@@ -188,7 +261,7 @@ If you prefer to install manually:
 3. Type your question about the document in the input field
 4. Click **Send**. The application loads the KV cache and processes *only your query*, resulting in a fast response that leverages the document's context
 5. Continue the conversation with follow-up questions, which remain fast as the document context is already loaded via the cache
-6. Adjust temperature and max tokens settings as needed
+6. For even faster responses, click **Warm Up Cache** before asking questions. This pre-loads the model and cache into memory for near-instantaneous responses
 
 ### Managing KV Caches
 
@@ -214,6 +287,11 @@ LlamaCag UI uses `llama-cpp-python` for true KV caching:
    - When you start a chat with "Use KV Cache" enabled, the application loads the model
    - It then loads the pre-computed state from the selected `.llama_cache` file (`llm.load_state(...)`)
    - Your query is tokenized and processed (`llm.eval(query_tokens)` or `llm.create_completion(...)`). Since the document context is already in the model's state via the cache, only the query needs processing, making responses much faster
+
+3. **Warm-Up Mode**:
+   - When you click "Warm Up Cache", the model and cache are loaded into memory and kept there
+   - All subsequent queries are processed using this already-loaded state
+   - This provides near-instantaneous responses as no loading is required between queries
 
 ### Directory Structure
 
@@ -260,6 +338,15 @@ LlamaCag UI creates and uses the following directories:
 2. Check if the `.llama_cache` file exists in `~/cag_project/kv_caches/` (or your configured path)
 3. Ensure the model selected in the **Models** tab is the same one used to create the cache
 4. Try purging the cache via the **KV Cache Monitor** and re-processing the document
+
+#### Slow document processing
+
+**Cause**: Processing large documents requires significant computational resources, especially without GPU acceleration.
+
+**Solution**:
+1. Enable GPU acceleration in Settings for Apple Silicon (set GPU Layers to 15-20 for 4B models)
+2. Process smaller documents first, especially when testing
+3. Be patient - initial processing of a 128K token document can take time, but subsequent chat interactions will be fast
 
 ### Reset and Diagnostics
 
