@@ -129,20 +129,30 @@ class ChatEngine(QObject):
         # Convert to lowercase and strip for consistent comparison
         msg = message.lower().strip()
 
-        # More explicit recitation commands focusing on "from beginning" (as per plan)
+        # Expanded recitation commands with more specific patterns
         simple_commands = [
             "recite", "recite document", "recite the document",
             "start from beginning", "start from the beginning",
             "show document from beginning", "read from start",
             "read from the beginning", "recite from the beginning",
-            "show me the document from the start", "recite from start"
+            "show me the document from the start", "recite from start",
+            # Add additional patterns for paragraph-specific recitation
+            "recite first paragraph", "recite paragraph", "recite paragraphs",
+            "recite first", "recite first two", "recite 2", "recite two",
+            "recite first 2", "recite 1st", "recite only", "recite the first"
         ]
 
-        # Check for exact match or if message contains keywords indicating start/beginning (as per plan)
-        if msg in simple_commands or "beginning" in msg or "start" in msg:
-            logging.info("Detected document recitation command with explicit beginning reference")
-            # Return a prompt that reinforces starting from the very beginning (as per plan)
-            return True, "Please recite the entire document from the VERY BEGINNING. Start with the first sentence:"
+        # Check for exact match or if message contains keywords
+        is_recitation = False
+        for cmd in simple_commands:
+            if cmd in msg:
+                is_recitation = True
+                break
+        
+        if is_recitation or "beginning" in msg or "start" in msg or "paragraph" in msg:
+            logging.info("Detected document recitation command")
+            # Return a prompt that reinforces starting from the very beginning
+            return True, "Please recite the exact document text, starting from the very beginning. Provide the complete text of any paragraphs requested without modifications or truncation."
 
         # Not a recitation command based on the new criteria
         return False, message # Return original message if not detected
@@ -510,6 +520,39 @@ class ChatEngine(QObject):
                          self.cache_status_changed.emit("Fresh Context: Reset Failed")
                          # Do NOT proceed with persistent instance if reset failed
                          should_try_persistent = False # Force fallback to temporary
+             # NEW CODE: Check for recent recitation and refresh state if needed
+             elif len(self.history) >= 2 and any("recite" in h.get("content", "").lower() for h in self.history[-2:]):
+                 logging.info("Recent recitation detected, refreshing model state for clean QA")
+                 self.cache_status_changed.emit("Recitation Reset: Refreshing...")
+                 reset_success = False
+                 with self._lock: # Acquire lock for the reset operation
+                     try:
+                         if self.warmed_cache_path and Path(self.warmed_cache_path).exists():
+                             # Log cache file stats before loading
+                             cache_size = Path(self.warmed_cache_path).stat().st_size
+                             logging.debug(f"Reloading cache after recitation: {self.warmed_cache_path}, size: {cache_size} bytes")
+                            
+                             with open(self.warmed_cache_path, 'rb') as f_pickle:
+                                 state_data = pickle.load(f_pickle)
+                             # Ensure persistent_llm still exists
+                             if self.persistent_llm:
+                                 # Log before state reset
+                                 logging.debug("About to refresh persistent_llm state after recitation")
+                                 self.persistent_llm.load_state(state_data)
+                                 logging.info("Model state refreshed successfully after recitation.")
+                                 self.cache_status_changed.emit("Recitation Reset: OK")
+                                 reset_success = True
+                             else:
+                                 logging.warning("Persistent LLM disappeared during recitation reset attempt.")
+                                 raise RuntimeError("Persistent LLM instance no longer available.")
+                         else:
+                             raise FileNotFoundError(f"Warmed cache path invalid for recitation reset: {self.warmed_cache_path}")
+                     except Exception as e_reset:
+                         logging.error(f"Failed to refresh state after recitation: {e_reset}")
+                         self.error_occurred.emit(f"Recitation Reset Failed: {e_reset}. Using temporary instance.")
+                         self.cache_status_changed.emit("Recitation Reset: Failed")
+                         # Do NOT proceed with persistent instance if reset failed
+                         should_try_persistent = False # Force fallback to temporary
 
              # If we still intend to use persistent (reset ok or not needed)
              if should_try_persistent:
@@ -645,9 +688,14 @@ class ChatEngine(QObject):
                 # For document recitation, we need different thresholds:
                 # 1. Higher repeat threshold (documents may have legitimate repetition)
                 # 2. More tokens allowed without visible output
-                repeat_threshold = max(repeat_threshold * 3, 6)  # Triple the threshold or minimum 6
-                max_no_output = max(max_no_output * 2, 100)  # Double max_no_output or minimum 100
-                logging.info(f"Using recitation thresholds: repeat={repeat_threshold}, max_no_output={max_no_output}")
+                # Increased from original values
+                repeat_threshold = max(repeat_threshold * 6, 12)  # Significantly higher threshold for recitation
+                max_no_output = max(max_no_output * 3, 150)  # Allow much more processing without visible output
+                logging.info(f"Using enhanced recitation thresholds: repeat={repeat_threshold}, max_no_output={max_no_output}")
+
+                # Also increase the temperature slightly for recitation to avoid repetition loops
+                temperature = 0.2  # Slight increase from default 0.1
+                logging.info(f"Using adjusted temperature for recitation: {temperature}")
             else:
                 # For regular QA, use the configured values
                 logging.info(f"Using standard QA thresholds: repeat={repeat_threshold}, max_no_output={max_no_output}")
@@ -755,10 +803,10 @@ class ChatEngine(QObject):
 
             # --- Generate response ---
             if is_recitation_request:
-                 # --- Use create_chat_completion for Recitation (with temp=0.0) ---
+                 # --- Use create_chat_completion for Recitation (with temp=0.2) ---
                  # Since KV cache is loaded and we skipped eval, the model state is ready.
                  # We need a minimal prompt just to kick off generation.
-                 logging.info(f"Generating recitation using create_chat_completion (max_tokens={max_tokens}, temp=0.0)")
+                 logging.info(f"Generating recitation using create_chat_completion (max_tokens={max_tokens}, temp={temperature})")
                  recitation_messages = [
                      # Minimal system prompt reinforcing the task
                     {"role": "system", "content": "Recite the loaded document exactly."},
@@ -767,21 +815,26 @@ class ChatEngine(QObject):
                 ]
                  # Note: We are NOT evaluating these minimal messages. Generation starts from the loaded state.
                 
-                 # Combine standard EOS with additional stop tokens for recitation as well
-                 eos_token = llm.token_eos()
-                 stop_token_ids = {int(eos_token)} | {int(t) for t in additional_stop_tokens} # Ensure all are ints
-                 logging.debug(f"Effective stop token IDs for recitation: {stop_token_ids}")
+                 # FIX: Instead of using integer stop tokens which can't be encoded, use explicit string sequences for stop
+                 # The library expects strings, not token IDs
+                 stop_sequences = ["<end>", "</s>", "<|endoftext|>"]  # Common end sequences
+                 
+                 # If we know the model type, add model-specific stop sequences
+                 if "gemma" in current_model_id.lower():
+                     stop_sequences.append("<EOS>")
+                 
+                 logging.debug(f"Using string stop sequences for recitation: {stop_sequences}")
 
-                 # Override temperature to 0.0 for recitation as per plan (already done in original code)
-                 recitation_temperature = 0.0
+                 # Modify the temperature for recitation to avoid loops
+                 recitation_temperature = 0.2  # Increased from 0.0 to add slight variability
                  logging.info(f"Setting temperature to {recitation_temperature} for recitation.")
 
                  stream = llm.create_chat_completion(
                      messages=recitation_messages, # Minimal prompt
                      max_tokens=max_tokens,
-                     temperature=recitation_temperature, # Use 0.0 for deterministic output
+                     temperature=recitation_temperature, # Use increased temp to avoid loops
                      stream=True,
-                     stop=list(stop_token_ids) # Pass combined stop tokens
+                     stop=stop_sequences  # Use string stop sequences instead of token IDs
                  )
 
                  # Process stream for recitation
@@ -816,6 +869,18 @@ class ChatEngine(QObject):
                       self.response_chunk.emit(truncation_msg)
 
                  logging.info(f"Generated recitation response. EOS generated: {generated_eos}")
+                 
+                 # NEW CODE: Reset context after recitation to fix QA functionality
+                 if is_using_persistent_llm and self.warmed_cache_path:
+                     try:
+                         logging.info("Performing context reset after recitation to restore QA functionality")
+                         # Reload the KV cache state to reset the model's internal state
+                         with open(self.warmed_cache_path, 'rb') as f_pickle:
+                             state_data = pickle.load(f_pickle)
+                         llm.load_state(state_data)
+                         logging.info("Context reset completed successfully after recitation")
+                     except Exception as reset_error:
+                         logging.warning(f"Could not reset context after recitation: {reset_error}")
 
             else:
                 # --- Use low-level sampling for QA (as before) ---
@@ -1225,6 +1290,11 @@ class ChatEngine(QObject):
                     chat_messages.append({"role": "user", "content": modified_message})
                 else:
                     chat_messages.append({"role": "user", "content": "Please recite the document from the beginning."})
+                
+                # For recitation, increase temperature slightly to avoid loops
+                if temperature < 0.2:
+                    temperature = 0.2
+                    logging.info(f"Adjusted temperature for recitation to {temperature}")
             else:
                 # Add recent history for regular QA
                 history_limit = 4
@@ -1268,6 +1338,18 @@ class ChatEngine(QObject):
                 logging.warning("Fallback: Model stream completed but produced no text.")
                 self.error_occurred.emit("Model generated an empty response.")
                 # self.response_complete.emit("", False) # Moved to finally
+                
+            # NEW CODE: Reset context after recitation to fix QA functionality
+            if is_recitation_request and is_using_persistent_llm and self.warmed_cache_path:
+                try:
+                    logging.info("Performing fallback context reset after recitation to restore QA functionality")
+                    # Reload the KV cache state to reset the model's internal state
+                    with open(self.warmed_cache_path, 'rb') as f_pickle:
+                        state_data = pickle.load(f_pickle)
+                    llm.load_state(state_data)
+                    logging.info("Fallback context reset completed successfully after recitation")
+                except Exception as reset_error:
+                    logging.warning(f"Could not reset fallback context after recitation: {reset_error}")
 
         except Exception as e:
             error_message = f"Error during fallback inference: {str(e)}"
@@ -1300,61 +1382,3 @@ class ChatEngine(QObject):
             final_chat_status = "Error" if error_message else "Idle" # Fallback always ends in Idle or Error
             self.cache_status_changed.emit(final_chat_status)
             logging.debug("Fallback inference thread finished.")
-
-
-    def clear_history(self):
-        self.history = []
-        logging.info("Chat history cleared")
-        # Also unload cache if one was warmed up? Optional, maybe keep it warm.
-        # self.unload_cache()
-
-    def get_history(self) -> List[Dict]:
-        return self.history
-
-    def save_history(self, file_path: Union[str, Path]) -> bool:
-        try:
-            with open(file_path, 'w') as f:
-                json.dump({
-                    "history": self.history,
-                    "model_id": self.config_manager.get('CURRENT_MODEL_ID'), # Use config_manager
-                    "kv_cache_path": self.current_kv_cache_path,
-                    "timestamp": time.time(),
-                    "use_kv_cache_setting": self.use_kv_cache,
-                    "fresh_context_mode_setting": self.fresh_context_mode # Save fresh context mode
-                }, f, indent=2)
-            logging.info(f"Chat history saved to {file_path}")
-            return True
-        except Exception as e:
-            logging.error(f"Failed to save chat history: {str(e)}")
-            return False
-
-    def load_history(self, file_path: Union[str, Path]) -> bool:
-        try:
-            with open(file_path, 'r') as f:
-                data = json.load(f)
-
-            self.history = data.get("history", [])
-            kv_cache_path_str = data.get("kv_cache_path")
-            if kv_cache_path_str and Path(kv_cache_path_str).exists() and Path(kv_cache_path_str).suffix == '.llama_cache':
-                self.current_kv_cache_path = kv_cache_path_str
-                logging.info(f"Loaded KV cache path from history: {self.current_kv_cache_path}")
-            else:
-                 self.current_kv_cache_path = None
-            self.use_kv_cache = data.get("use_kv_cache_setting", True)
-            logging.info(f"Loaded use_kv_cache setting from history: {self.use_kv_cache}")
-            # Also load fresh context mode setting if available
-            self.fresh_context_mode = data.get("fresh_context_mode_setting", self.fresh_context_mode) # Keep current if not in file
-            logging.info(f"Loaded fresh_context_mode setting from history: {self.fresh_context_mode}")
-
-            logging.info(f"Chat history loaded from {file_path}")
-            return True
-        except Exception as e:
-            logging.error(f"Failed to load chat history: {str(e)}")
-            return False
-
-    def update_config(self, config_manager): # Changed config to config_manager
-        self.config_manager = config_manager # Changed self.config to self.config_manager
-        # Update settings from config_manager
-        self.use_true_kv_cache_logic = self.config_manager.get('USE_TRUE_KV_CACHE', True) # Use config_manager
-        self.fresh_context_mode = self.config_manager.get('USE_FRESH_CONTEXT', self.fresh_context_mode) # Use config_manager
-        logging.info(f"ChatEngine configuration updated. True KV Cache Logic: {self.use_true_kv_cache_logic}, Fresh Context Mode: {self.fresh_context_mode}")

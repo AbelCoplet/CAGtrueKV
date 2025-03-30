@@ -40,32 +40,91 @@ if [ ! -f "$(pwd)/metal/metal_kernels.metallib" ]; then
 
     # Check if download was successful
     if [ -f "$(pwd)/metal/ggml-metal.metal" ]; then
-        # Compile Metal shaders if xcrun is available
-        if command -v xcrun &> /dev/null; then
-            echo "Compiling Metal shaders using xcrun..."
-            if xcrun -sdk macosx metal -c "$(pwd)/metal/ggml-metal.metal" -o "$(pwd)/metal/ggml-metal.air"; then
-                if xcrun -sdk macosx metallib "$(pwd)/metal/ggml-metal.air" -o "$(pwd)/metal/metal_kernels.metallib"; then
-                    echo "Metal shader library compiled successfully: $(pwd)/metal/metal_kernels.metallib"
+        # First try: Look for metal compiler in standard Xcode locations
+        METAL_COMPILER=""
+        POTENTIAL_PATHS=(
+            # Standard Xcode.app location
+            "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/metal"
+            # Xcode Command Line Tools possible locations
+            "/Library/Developer/CommandLineTools/usr/bin/metal"
+            "/usr/bin/metal"
+        )
+        
+        for path in "${POTENTIAL_PATHS[@]}"; do
+            if [ -x "$path" ]; then
+                METAL_COMPILER="$path"
+                echo "Found metal compiler at: $METAL_COMPILER"
+                break
+            fi
+        done
+        
+        # If not found in standard locations, try using xcrun to find it
+        if [ -z "$METAL_COMPILER" ]; then
+            if command -v xcrun &> /dev/null; then
+                # Try to locate metal using xcrun
+                METAL_COMPILER=$(xcrun -f metal 2>/dev/null || echo "")
+                if [ -n "$METAL_COMPILER" ]; then
+                    echo "Found metal compiler via xcrun at: $METAL_COMPILER"
                 else
-                    echo "ERROR: Failed to create Metal library from .air file."
-                    # Clean up intermediate file
+                    echo "WARNING: Could not locate metal compiler using xcrun."
+                fi
+            fi
+        fi
+        
+        # If we found the metal compiler, use direct path to avoid PATH issues
+        if [ -n "$METAL_COMPILER" ]; then
+            echo "Compiling Metal shaders using direct compiler path..."
+            
+            # First compile .metal to .air
+            if "$METAL_COMPILER" -c "$(pwd)/metal/ggml-metal.metal" -o "$(pwd)/metal/ggml-metal.air"; then
+                # Then convert .air to .metallib using metallib tool
+                METALLIB_COMPILER=$(dirname "$METAL_COMPILER")/metallib
+                
+                if [ -x "$METALLIB_COMPILER" ]; then
+                    if "$METALLIB_COMPILER" "$(pwd)/metal/ggml-metal.air" -o "$(pwd)/metal/metal_kernels.metallib"; then
+                        echo "Metal shader library compiled successfully: $(pwd)/metal/metal_kernels.metallib"
+                    else
+                        echo "ERROR: Failed to create Metal library from .air file."
+                        rm -f "$(pwd)/metal/ggml-metal.air"
+                    fi
+                else
+                    echo "ERROR: metallib compiler not found at expected location: $METALLIB_COMPILER"
                     rm -f "$(pwd)/metal/ggml-metal.air"
                 fi
             else
                 echo "ERROR: Failed to compile Metal source file."
             fi
-            # Clean up source file after attempting compilation
-            # rm -f "$(pwd)/metal/ggml-metal.metal" # Keep source for potential re-compilation? Optional.
         else
-            echo "WARNING: xcrun (Xcode Command Line Tools) not found."
-            echo "Cannot compile Metal shaders automatically."
-            echo "Please install Xcode Command Line Tools (xcode-select --install) and run this script again,"
-            echo "or manually compile ggml-metal.metal into metal_kernels.metallib in the 'metal' directory."
-            echo "Metal acceleration may be suboptimal without compiled shaders."
+            # Fallback: Try to download pre-compiled metallib directly
+            echo "Metal compiler not found. Attempting to download pre-compiled shader library..."
+            curl -L https://github.com/ggerganov/llama.cpp/raw/master/metal_kernels.metallib \
+                -o "$(pwd)/metal/metal_kernels.metallib"
+                
+            if [ -f "$(pwd)/metal/metal_kernels.metallib" ]; then
+                echo "Downloaded pre-compiled Metal shader library successfully."
+                echo "This may not be optimized for your specific hardware, but should work."
+            else
+                echo "ERROR: Failed to download pre-compiled Metal shader library."
+                echo "Metal acceleration will be unavailable. Using CPU only mode."
+                echo "To enable Metal acceleration later, you can try:"
+                echo "1. Install full Xcode from App Store (not just Command Line Tools)"
+                echo "2. Run 'sudo xcode-select --switch /Applications/Xcode.app' in Terminal"
+                echo "3. Rerun this application"
+            fi
         fi
     else
         echo "ERROR: Failed to download ggml-metal.metal."
     fi
+fi
+
+# If Metal shader library still doesn't exist, disable Metal acceleration
+if [ ! -f "$(pwd)/metal/metal_kernels.metallib" ]; then
+    echo "WARNING: Metal shader library not available, disabling GPU acceleration"
+    export GGML_METAL_FULL_BACKEND=0
+    export GGML_METAL_PATH_RESOURCES=""
+    # Set GPU layers to 0 in environment to ensure CPU-only mode
+    export GGML_NGPU=0
+    export GGML_GPU_LAYERS=0
 fi
 
 # Run the application

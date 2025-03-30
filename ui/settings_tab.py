@@ -5,6 +5,7 @@ Provides an interface for configuring the application.
 """
 import os
 import sys
+import logging
 from pathlib import Path
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -564,17 +565,42 @@ class SettingsTab(QWidget):
             capabilities = self.llama_manager.detect_metal_capabilities()
 
             if not capabilities.get("supported", False):
-                QMessageBox.information(
-                    self, "Metal Detection",
-                    f"Metal acceleration not supported or detection failed: {capabilities.get('reason', 'Unknown reason')}"
-                )
-                return
+                # Get the reason and show a more helpful message
+                reason = capabilities.get('reason', 'Unknown reason')
+                
+                # Show a more detailed dialog with recovery steps if there's a Metal library issue
+                if "Metal shader library not found" in reason:
+                    QMessageBox.warning(
+                        self, "Metal Acceleration Unavailable",
+                        f"Metal acceleration is not available: {reason}\n\n"
+                        f"Recovery steps:\n"
+                        f"1. Close the application\n"
+                        f"2. Install full Xcode from App Store (not just Command Line Tools)\n"
+                        f"3. Run 'sudo xcode-select --switch /Applications/Xcode.app' in Terminal\n"
+                        f"4. Restart the application\n\n"
+                        f"The application will run in CPU-only mode until this is resolved."
+                    )
+                    # Set UI elements to CPU-only mode
+                    self.gpu_layers_spin.setValue(0)
+                    if hasattr(self, 'metal_enabled_checkbox'):
+                        self.metal_enabled_checkbox.setChecked(False)
+                        self.metal_enabled_checkbox.setEnabled(False)
+                    return
+                else:
+                    # For other issues, show the standard error
+                    QMessageBox.information(
+                        self, "Metal Detection",
+                        f"Metal acceleration not supported or detection failed: {reason}"
+                    )
+                    return
 
             # --- Calculate optimal values ---
             gpu_cores = capabilities.get("gpu_cores", 0)
             gpu_model = capabilities.get("gpu_model", "Unknown")
             feature_set = capabilities.get("feature_set", "Unknown")
             get_rec_layers_func = capabilities.get("get_recommended_layers")
+            metal_lib_path = capabilities.get("metal_lib_path", "")
+            env_configured = capabilities.get("env_configured", False)
 
             # Set GPU layers based on cores and model (if function available)
             optimal_layers = 0
@@ -611,32 +637,42 @@ class SettingsTab(QWidget):
                 logging.error(f"Failed to detect system memory via sysctl: {e_mem}. Using default Metal memory (4096 MB).")
                 metal_memory_mb = 4096 # Fallback default
 
-            self.metal_memory_slider.setValue(metal_memory_mb)
-            self.memory_label.setText(f"{metal_memory_mb} MB") # Update label immediately
+            if hasattr(self, 'metal_memory_slider'):
+                self.metal_memory_slider.setValue(metal_memory_mb)
+                self.memory_label.setText(f"{metal_memory_mb} MB") # Update label immediately
 
             # Update profile based on device type (heuristic)
             # Assume 'mini' might benefit from 'Performance' due to active cooling
             # Assume MacBooks might prefer 'Balanced' or 'Efficiency'
             # This is a rough guess and might need refinement
             profile_index = 0 # Default to Balanced
-            if 'mini' in gpu_model.lower():
-                 profile_index = 1 # Performance
-            elif 'macbook' in gpu_model.lower():
-                 profile_index = 0 # Balanced
-            # Add more heuristics if needed
+            if hasattr(self, 'metal_profile_combo'):
+                if 'mini' in gpu_model.lower():
+                     profile_index = 1 # Performance
+                elif 'macbook' in gpu_model.lower():
+                     profile_index = 0 # Balanced
+                # Add more heuristics if needed
 
-            self.metal_profile_combo.setCurrentIndex(profile_index)
+                self.metal_profile_combo.setCurrentIndex(profile_index)
+
+            # Check if Metal environment is properly configured
+            env_status = "Environment properly configured" if env_configured else "Environment variables may not be correctly set"
 
             # --- Show results ---
+            # Adapt the message based on the Metal library status
+            metal_lib_status = "Found" if os.path.exists(metal_lib_path) else "Not found (CPU-only mode)"
+            
             QMessageBox.information(
                 self, "Metal Detection Complete",
                 f"Applied suggested Metal settings based on detected hardware:\n\n"
                 f"- GPU Model: {gpu_model}\n"
                 f"- GPU Cores: {gpu_cores if gpu_cores > 0 else 'Not Detected'}\n"
-                f"- Metal Feature Set: {feature_set}\n\n"
+                f"- Metal Feature Set: {feature_set}\n"
+                f"- Metal Library Status: {metal_lib_status}\n"
+                f"- Metal {env_status}\n\n"
                 f"- Suggested GPU Layers: {optimal_layers} (for current model: {current_model_id or 'None Selected'})\n"
                 f"- Suggested Metal Memory: {metal_memory_mb} MB\n"
-                f"- Suggested Profile: {self.metal_profile_combo.currentText()}\n\n"
+                f"- Suggested Profile: {self.metal_profile_combo.currentText() if hasattr(self, 'metal_profile_combo') else 'N/A'}\n\n"
                 f"Recommended model formats: {', '.join(capabilities.get('recommended_formats', ['N/A']))}\n\n"
                 f"Please review and save these settings if they look correct."
             )

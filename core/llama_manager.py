@@ -305,11 +305,22 @@ class LlamaManager(QObject):
         import sys
         import subprocess
         import logging # Assuming logging is already configured
+        import os # Added to check for files
 
         try:
             # Check if on macOS
             if sys.platform != 'darwin':
                 return {"supported": False, "reason": "Not running on macOS"}
+
+            # First, check if Metal shader library exists (this is critical)
+            metal_lib_path = os.path.join(os.getcwd(), "metal", "metal_kernels.metallib")
+            if not os.path.exists(metal_lib_path):
+                return {
+                    "supported": False, 
+                    "reason": f"Metal shader library not found at: {metal_lib_path}. "
+                             f"GPU acceleration will be unavailable. Please rerun the application or "
+                             f"manually compile Metal shaders."
+                }
 
             # Check for Apple Silicon
             is_apple_silicon = False
@@ -330,6 +341,16 @@ class LlamaManager(QObject):
             if not is_apple_silicon:
                 return {"supported": False, "reason": "Not running on Apple Silicon (arm64)"}
 
+            # Now check if Metal environment variables are set correctly
+            metal_env_vars = {
+                "GGML_METAL_PATH_RESOURCES": os.environ.get("GGML_METAL_PATH_RESOURCES", ""),
+                "GGML_METAL_FULL_BACKEND": os.environ.get("GGML_METAL_FULL_BACKEND", "")
+            }
+            
+            # If Metal path isn't set or points to a non-existent directory, it's a problem
+            if not metal_env_vars["GGML_METAL_PATH_RESOURCES"] or not os.path.exists(metal_env_vars["GGML_METAL_PATH_RESOURCES"]):
+                logging.warning(f"Metal resources path not correctly set: {metal_env_vars['GGML_METAL_PATH_RESOURCES']}")
+            
             # Get GPU info using system_profiler
             gpu_model = "Unknown"
             gpu_cores = 0
@@ -380,6 +401,23 @@ class LlamaManager(QObject):
             if not metal_supported:
                  return {"supported": False, "reason": "Metal support not detected via system_profiler"}
 
+            # Verify Metal is actually usable by doing a simple test
+            try:
+                # Try to load a small Metal test program - this would detect more subtle issues
+                test_cmd = """
+                echo '#include <metal_stdlib>
+                using namespace metal;
+                kernel void test_kernel(device float* output, uint index [[thread_position_in_grid]]) {
+                    output[index] = 1.0f;
+                }' > /tmp/test.metal && xcrun -sdk macosx metal -c /tmp/test.metal -o /tmp/test.air && xcrun -sdk macosx metallib /tmp/test.air -o /tmp/test.metallib
+                """
+                subprocess.run(test_cmd, shell=True, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                # If we got here, Metal compilation works
+                logging.info("Metal test compilation succeeded, confirming Metal is usable")
+            except subprocess.CalledProcessError:
+                logging.warning("Metal test compilation failed, but continuing with detected capabilities")
+                # Don't fail completely, as our pre-compiled metallib might still work
+
             # Determine recommended gpu_layers based on model size and detected cores
             def get_recommended_layers(model_id, detected_gpu_cores):
                 # Default conservative value if cores not detected
@@ -405,7 +443,10 @@ class LlamaManager(QObject):
                 "gpu_cores": gpu_cores,
                 "feature_set": metal_feature_set,
                 "recommended_formats": ["Q4_1", "Q5_K_M", "IQ4_NL"], # General recommendations
-                "get_recommended_layers": get_recommended_layers # Return the function itself
+                "get_recommended_layers": get_recommended_layers, # Return the function itself
+                "metal_lib_path": metal_lib_path, # Return the path to metallib so UI can check it
+                "env_configured": bool(metal_env_vars["GGML_METAL_PATH_RESOURCES"] and 
+                                      metal_env_vars["GGML_METAL_FULL_BACKEND"] == "1")
             }
         except Exception as e:
             logging.error(f"Error detecting Metal capabilities: {e}", exc_info=True) # Log traceback
