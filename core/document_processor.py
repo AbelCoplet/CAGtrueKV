@@ -34,17 +34,18 @@ class DocumentProcessor(QObject):
     processing_complete = pyqtSignal(str, bool, str)  # document_id, success, message
     token_estimation_complete = pyqtSignal(str, int, bool)  # document_id, tokens, fits_context
 
-    def __init__(self, config, llama_manager, model_manager, cache_manager):
+    def __init__(self, config_manager, llama_manager, model_manager, cache_manager):
         """Initialize document processor"""
         super().__init__()
-        self.config = config
+        self.config_manager = config_manager
+        self.config = config_manager.get_config()
         self.llama_manager = llama_manager
         self.model_manager = model_manager
         self.cache_manager = cache_manager
 
         # Set up directories
-        self.temp_dir = Path(os.path.expanduser(config.get('LLAMACPP_TEMP_DIR', '~/cag_project/temp_chunks')))
-        self.kv_cache_dir = Path(os.path.expanduser(config.get('LLAMACPP_KV_CACHE_DIR', '~/cag_project/kv_caches')))
+        self.temp_dir = Path(os.path.expanduser(self.config.get('LLAMACPP_TEMP_DIR', '~/cag_project/temp_chunks')))
+        self.kv_cache_dir = Path(os.path.expanduser(self.config.get('LLAMACPP_KV_CACHE_DIR', '~/cag_project/kv_caches')))
 
         # Ensure directories exist
         self.temp_dir.mkdir(parents=True, exist_ok=True)
@@ -115,14 +116,12 @@ class DocumentProcessor(QObject):
             self.token_estimation_complete.emit(document_id, 0, False)
             return 0
 
-
     def process_document(self, document_path: Union[str, Path], set_as_master: bool = False) -> bool:
         """Process a document into a KV cache"""
         document_path = Path(document_path)
         if not document_path.exists():
             self.processing_complete.emit("unknown", False, f"Document not found: {document_path}")
             return False
-
 
         document_id = self._get_document_id(document_path)
 
@@ -174,13 +173,37 @@ class DocumentProcessor(QObject):
             if state_data is None:
                 logging.error("save_state() returned None")
                 return False
+                
+            # Log state data type and size estimate
+            logging.debug(f"State data type: {type(state_data)}")
+            try:
+                import sys
+                state_size_estimate = sys.getsizeof(state_data)
+                logging.debug(f"State data approximate size: {state_size_estimate} bytes")
+            except Exception as e_size:
+                logging.warning(f"Could not estimate state data size: {e_size}")
 
             # Save with pickle
-            with open(kv_cache_path, 'wb') as f_pickle:
-                pickle.dump(state_data, f_pickle)
-            logging.info("KV cache state saved successfully via pickle")
-            return True
-        except (AttributeError, pickle.PicklingError) as e:
+            try:
+                with open(kv_cache_path, 'wb') as f_pickle:
+                    pickle.dump(state_data, f_pickle)
+                
+                # Verify the file was created and has content
+                if not kv_cache_path.exists():
+                    logging.error("Pickle file was not created!")
+                    return False
+                    
+                if kv_cache_path.stat().st_size == 0:
+                    logging.error("Pickle file was created but is empty!")
+                    return False
+                    
+                logging.info(f"KV cache state saved successfully via pickle. File size: {kv_cache_path.stat().st_size} bytes")
+                return True
+            except (pickle.PicklingError, OSError) as e:
+                logging.error(f"Failed to pickle state data: {e}")
+                return False
+                
+        except (AttributeError, Exception) as e:
             logging.error(f"Error in primary KV cache save method: {e}")
 
         # Method 2: Try direct path argument as fallback
@@ -190,7 +213,7 @@ class DocumentProcessor(QObject):
 
             # Check if file was created
             if kv_cache_path.exists() and kv_cache_path.stat().st_size > 0:
-                logging.info("KV cache saved successfully with path argument")
+                logging.info(f"KV cache saved successfully with path argument. File size: {kv_cache_path.stat().st_size} bytes")
                 return True
             else:
                 logging.error("save_state(path) did not create a valid file")
@@ -200,6 +223,30 @@ class DocumentProcessor(QObject):
         # If we get here, both methods failed
         logging.error("All KV cache save methods failed")
         return False
+
+    def _verify_kv_cache_integrity(self, kv_cache_path: Path) -> bool:
+        """
+        Verify that a saved KV cache file can be loaded correctly.
+        This helps ensure the file isn't corrupted or malformed.
+        """
+        logging.info(f"Verifying KV cache integrity for {kv_cache_path}...")
+        try:
+            # Try to load the cache file
+            with open(kv_cache_path, 'rb') as f:
+                state_data = pickle.load(f)
+                
+            # Check basic properties of state_data
+            if state_data is None:
+                logging.error("Verification failed: KV cache file loaded as None")
+                return False
+                
+            # Log basic info
+            logging.info(f"KV cache verification successful. Cache appears valid.")
+            return True
+            
+        except Exception as e:
+            logging.error(f"KV cache verification failed: {str(e)}")
+            return False
 
     def _process_document_thread(self, document_id: str, document_path: str, model_path: str,
                                kv_cache_path: Path, context_window: int, set_as_master: bool):
@@ -222,6 +269,10 @@ class DocumentProcessor(QObject):
             if not Path(abs_model_path).exists():
                  raise FileNotFoundError(f"Model file not found: {abs_model_path}")
 
+            # Log detailed parameters
+            logging.info(f"Model load parameters: threads={threads}, batch_size={batch_size}, gpu_layers={gpu_layers}, context_window={context_window}")
+            
+            # Load the model with the specified parameters
             llm = Llama(
                 model_path=abs_model_path,
                 n_ctx=context_window,
@@ -231,12 +282,33 @@ class DocumentProcessor(QObject):
                 verbose=False # Keep logs clean, rely on Python logging
             )
             self.processing_progress.emit(document_id, 10) # Progress update
+            logging.info(f"Model loaded successfully: n_ctx={llm.n_ctx()}")
 
             # --- Read and Tokenize Document ---
             logging.info(f"Reading document: {document_path}")
-            with open(document_path, 'r', encoding='utf-8', errors='replace') as f:
-                content = f.read()
-
+            try:
+                with open(document_path, 'r', encoding='utf-8', errors='replace') as f:
+                    content = f.read()
+                    
+                # Basic document stats
+                doc_size_bytes = len(content.encode('utf-8'))
+                doc_lines = content.count('\n') + 1
+                logging.info(f"Document stats: size={doc_size_bytes} bytes, lines={doc_lines}")
+                
+                # Check for potential issues like binary data
+                if '\x00' in content[:1000]:
+                    logging.warning("Document appears to contain binary data (null bytes)")
+                    
+                # Check for common encoding issues
+                try:
+                    content.encode('utf-8')
+                except UnicodeEncodeError:
+                    logging.warning("Document contains characters that cannot be encoded in UTF-8")
+                    
+            except UnicodeDecodeError as ude:
+                logging.error(f"UnicodeDecodeError while reading document: {ude}")
+                raise RuntimeError(f"Document appears to have encoding issues: {ude}. Try converting to UTF-8.")
+                
             logging.info(f"Tokenizing document...")
             tokens = llm.tokenize(content.encode('utf-8'))
             token_count = len(tokens)
@@ -247,6 +319,8 @@ class DocumentProcessor(QObject):
                 logging.warning(f"Document ({token_count} tokens) exceeds context window ({context_window}). Truncating.")
                 tokens = tokens[:context_window]
                 token_count = len(tokens) # Update token count after truncation
+                truncation_ratio = token_count / token_count * 100
+                logging.info(f"Keeping {token_count} tokens ({truncation_ratio:.1f}% of document)")
 
             # --- Evaluate Tokens (Create KV Cache State) ---
             logging.info(f"Evaluating {token_count} tokens to create KV cache state...")
@@ -255,20 +329,46 @@ class DocumentProcessor(QObject):
             # Simple progress simulation during eval
             total_tokens_to_eval = len(tokens)
             processed_tokens = 0
-            for i in range(0, total_tokens_to_eval, batch_size):
-                batch = tokens[i:min(i + batch_size, total_tokens_to_eval)]
-                if not batch:
-                    break
-                llm.eval(batch)
-                processed_tokens += len(batch)
-                progress = 10 + int(80 * (processed_tokens / total_tokens_to_eval)) # Eval is 10% to 90%
-                self.processing_progress.emit(document_id, progress)
+            
+            # Process tokens in batches
+            try:
+                for i in range(0, total_tokens_to_eval, batch_size):
+                    batch = tokens[i:min(i + batch_size, total_tokens_to_eval)]
+                    if not batch:
+                        break
+                        
+                    # Evaluate this batch
+                    batch_start_time = time.time()
+                    llm.eval(batch)
+                    batch_end_time = time.time()
+                    
+                    # Update progress and log
+                    processed_tokens += len(batch)
+                    progress = 10 + int(80 * (processed_tokens / total_tokens_to_eval)) # Eval is 10% to 90%
+                    self.processing_progress.emit(document_id, progress)
+                    
+                    # Detailed logging for batches
+                    if i % (5 * batch_size) == 0 or i == 0:  # Log every 5 batches or first batch
+                        batch_time = batch_end_time - batch_start_time
+                        tokens_per_sec = len(batch) / batch_time if batch_time > 0 else 0
+                        logging.info(f"Processed batch {i//batch_size + 1}/{(total_tokens_to_eval + batch_size - 1)//batch_size}: "
+                                    f"{len(batch)} tokens in {batch_time:.2f}s ({tokens_per_sec:.1f} tokens/sec), "
+                                    f"Progress: {processed_tokens}/{total_tokens_to_eval} tokens ({progress}%)")
+            except Exception as eval_error:
+                logging.error(f"Error during token evaluation: {eval_error}")
+                # Check if we processed any tokens at all
+                if processed_tokens == 0:
+                    raise RuntimeError(f"Failed to process any tokens: {eval_error}")
+                else:
+                    # Some tokens were processed, log warning and continue (partial cache better than none)
+                    logging.warning(f"Created partial KV cache with {processed_tokens}/{total_tokens_to_eval} tokens")
 
             eval_time = time.time() - eval_start_time
-            logging.info(f"Evaluation complete in {eval_time:.2f} seconds.")
+            tokens_per_second = token_count / eval_time if eval_time > 0 else 0
+            logging.info(f"Evaluation complete in {eval_time:.2f} seconds ({tokens_per_second:.2f} tokens/sec).")
             self.processing_progress.emit(document_id, 90) # Progress update
 
-            # --- Save KV Cache State (Using new helper function) ---
+            # --- Save KV Cache State (Using improved helper function) ---
             save_successful = self._save_kv_cache_state(llm, kv_cache_path)
 
             if not save_successful:
@@ -279,9 +379,17 @@ class DocumentProcessor(QObject):
                 logging.error(error_msg)
                 raise RuntimeError(error_msg)
 
-            # --- Continue if save was successful ---
-            logging.info("KV cache state saved successfully.") # Log success after helper call
+            # --- Verify KV Cache Integrity ---
             self.processing_progress.emit(document_id, 95) # Progress update
+            verify_successful = self._verify_kv_cache_integrity(kv_cache_path)
+            
+            if not verify_successful:
+                logging.error(f"KV cache verification failed after save.")
+                raise RuntimeError(f"Created KV cache file failed verification check. The cache may be corrupted.")
+
+            # --- Continue if save was successful ---
+            logging.info("KV cache state saved and verified successfully.") # Log success after helper call
+            self.processing_progress.emit(document_id, 97) # Progress update
 
             # --- Update Document Registry ---
             doc_info = {
@@ -346,6 +454,28 @@ class DocumentProcessor(QObject):
                  pass # No explicit cleanup known for Llama object itself
             logging.debug(f"Finished processing thread for {document_id}")
 
+    def update_config(self, config_manager):
+        """Update configuration from the config manager"""
+        self.config_manager = config_manager
+        self.config = config_manager.get_config()
+        
+        # Update directories if they've changed
+        new_temp_dir = Path(os.path.expanduser(self.config.get('LLAMACPP_TEMP_DIR', '~/cag_project/temp_chunks')))
+        new_kv_cache_dir = Path(os.path.expanduser(self.config.get('LLAMACPP_KV_CACHE_DIR', '~/cag_project/kv_caches')))
+        
+        # Check if directories changed
+        if new_temp_dir != self.temp_dir:
+            self.temp_dir = new_temp_dir
+            self.temp_dir.mkdir(parents=True, exist_ok=True)
+            logging.info(f"Updated temp directory to {self.temp_dir}")
+            
+        if new_kv_cache_dir != self.kv_cache_dir:
+            self.kv_cache_dir = new_kv_cache_dir
+            self.kv_cache_dir.mkdir(parents=True, exist_ok=True)
+            logging.info(f"Updated KV cache directory to {self.kv_cache_dir}")
+            
+            # Reload document registry if KV cache directory changed
+            self._load_document_registry()
 
     def set_as_master(self, document_id: str) -> bool:
         """Set a document as the master KV cache"""
