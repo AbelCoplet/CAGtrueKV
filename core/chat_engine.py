@@ -122,56 +122,30 @@ class ChatEngine(QObject):
     # --- Detect recitation command ---
     def _is_recitation_command(self, message: str) -> Tuple[bool, str]:
         """
-        Detect if the message is a document recitation command.
+        Detect if the message is a document recitation command, focusing on requests
+        to start from the beginning.
         Returns (is_recitation, modified_prompt)
         """
         # Convert to lowercase and strip for consistent comparison
         msg = message.lower().strip()
-        
-        # Simple recitation commands
+
+        # More explicit recitation commands focusing on "from beginning" (as per plan)
         simple_commands = [
-            "recite", "recite document", "recite the document", 
-            "show document", "show the document", "display document",
-            "read document", "read the document", "recite the entire document",
-            "show me the document", "what's in the document", "what is in the document",
-            "reproduce the document", "output the document", "give me the full document"
+            "recite", "recite document", "recite the document",
+            "start from beginning", "start from the beginning",
+            "show document from beginning", "read from start",
+            "read from the beginning", "recite from the beginning",
+            "show me the document from the start", "recite from start"
         ]
-        
-        # Check for exact match with simple commands
-        if msg in simple_commands:
-            logging.info("Detected simple document recitation command")
-            return True, "Please recite the entire document from the beginning:"
-        
-        # Pattern for "recite from X" or "start from X" commands
-        start_patterns = ["recite from", "start from", "begin from", "show from", "display from"]
-        for pattern in start_patterns:
-            if msg.startswith(pattern):
-                # This is a recitation with specific starting point
-                # For now, we'll still recite from beginning as handling specific
-                # starting points would require more complex parsing
-                logging.info(f"Detected recitation command with pattern '{pattern}'")
-                return True, "Please recite the document from the beginning:"
-                
-        # Check for document content questions that should trigger recitation
-        content_patterns = [
-            "what does the document say",
-            "what does the document contain",
-            "what's in the document",
-            "what is in the document",
-            "document content",
-            "full text",
-            "entire text",
-            "full document",
-            "full content"
-        ]
-        
-        for pattern in content_patterns:
-            if pattern in msg:
-                logging.info(f"Detected document content question with pattern '{pattern}'")
-                return True, "Please recite the document content from the beginning:"
-        
-        # Not a recitation command
-        return False, message
+
+        # Check for exact match or if message contains keywords indicating start/beginning (as per plan)
+        if msg in simple_commands or "beginning" in msg or "start" in msg:
+            logging.info("Detected document recitation command with explicit beginning reference")
+            # Return a prompt that reinforces starting from the very beginning (as per plan)
+            return True, "Please recite the entire document from the VERY BEGINNING. Start with the first sentence:"
+
+        # Not a recitation command based on the new criteria
+        return False, message # Return original message if not detected
 
     # --- Warm-up and Unload Methods ---
     def warm_up_cache(self, cache_path: str):
@@ -752,11 +726,11 @@ class ChatEngine(QObject):
 
             # --- Use different prompts for recitation vs QA ---
             if is_recitation_request:
-                # Different prompt for recitation
-                instruction_prefix = "\n\nYou are a precise document recitation system. Your task is to accurately recite the content of the loaded document, starting from the beginning. Don't add anything, don't modify anything, just output the exact document text.\n\n"
-                recitation_prompt = "Document recitation request: Beginning document text from the start:\n\n"
+                # More explicit recitation prompt (as per plan)
+                instruction_prefix = "\n\nYou are a precise document recitation system. Your task is to accurately recite the content of the loaded document, starting from the VERY BEGINNING of the document. Do not skip any content. Start with the first sentence and continue in order.\n\n"
+                recitation_prompt = "Document recitation request: Output the document text in order starting from the beginning:\n\n"
                 full_input_text = instruction_prefix + recitation_prompt
-                logging.info("Using document recitation prompt.")
+                logging.info("Using explicit document recitation prompt.")
             else:
                 # Original prompt for QA
                 instruction_prefix = "\n\nBased *only* on the loaded document context, answer the following question:\n"
@@ -798,10 +772,14 @@ class ChatEngine(QObject):
                  stop_token_ids = {int(eos_token)} | {int(t) for t in additional_stop_tokens} # Ensure all are ints
                  logging.debug(f"Effective stop token IDs for recitation: {stop_token_ids}")
 
+                 # Override temperature to 0.0 for recitation as per plan (already done in original code)
+                 recitation_temperature = 0.0
+                 logging.info(f"Setting temperature to {recitation_temperature} for recitation.")
+
                  stream = llm.create_chat_completion(
                      messages=recitation_messages, # Minimal prompt
                      max_tokens=max_tokens,
-                     temperature=0.0, # Force greedy sampling (most deterministic)
+                     temperature=recitation_temperature, # Use 0.0 for deterministic output
                      stream=True,
                      stop=list(stop_token_ids) # Pass combined stop tokens
                  )

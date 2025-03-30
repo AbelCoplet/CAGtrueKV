@@ -298,3 +298,115 @@ class LlamaManager(QObject):
         """Update configuration"""
         self.config = config
         self.llamacpp_path = Path(os.path.expanduser(config.get('LLAMACPP_PATH', '~/Documents/llama.cpp')))
+
+    def detect_metal_capabilities(self):
+        """Detect Metal capabilities and return recommended settings"""
+        # Import necessary modules locally within the method if not already imported globally
+        import sys
+        import subprocess
+        import logging # Assuming logging is already configured
+
+        try:
+            # Check if on macOS
+            if sys.platform != 'darwin':
+                return {"supported": False, "reason": "Not running on macOS"}
+
+            # Check for Apple Silicon
+            is_apple_silicon = False
+            try:
+                # Use platform module for more robust check
+                import platform
+                is_apple_silicon = platform.machine() == 'arm64'
+            except Exception as e_plat:
+                 logging.warning(f"Could not determine platform machine type: {e_plat}. Falling back to uname.")
+                 try:
+                     uname_output = subprocess.check_output(['uname', '-m'], text=True, stderr=subprocess.PIPE).strip()
+                     is_apple_silicon = uname_output == 'arm64'
+                 except (subprocess.CalledProcessError, FileNotFoundError) as e_uname:
+                     logging.error(f"Failed to run uname: {e_uname}")
+                     # Assume not Apple Silicon if check fails
+                     pass
+
+            if not is_apple_silicon:
+                return {"supported": False, "reason": "Not running on Apple Silicon (arm64)"}
+
+            # Get GPU info using system_profiler
+            gpu_model = "Unknown"
+            gpu_cores = 0
+            metal_supported = False
+            metal_feature_set = "Unknown"
+            try:
+                # Use text=True for automatic decoding
+                system_profiler_output = subprocess.check_output(
+                    ['system_profiler', 'SPDisplaysDataType'],
+                    text=True, stderr=subprocess.PIPE
+                )
+
+                # Parse the output
+                current_gpu_cores = 0 # Track cores for the current GPU block
+                for line in system_profiler_output.splitlines():
+                    line_stripped = line.strip()
+                    if 'Chipset Model:' in line_stripped:
+                        gpu_model = line_stripped.split(':', 1)[1].strip()
+                        current_gpu_cores = 0 # Reset cores for new GPU
+                    elif 'Total Number of Cores:' in line_stripped: # More reliable than 'Cores:'
+                        try:
+                            current_gpu_cores = int(line_stripped.split(':')[1].strip())
+                        except ValueError:
+                            logging.warning(f"Could not parse GPU cores from line: {line_stripped}")
+                            current_gpu_cores = 0
+                    elif 'Metal:' in line_stripped: # Check for Metal support line
+                        # Example: Metal: Supported, feature set macOS_GPUFamily2_v1
+                        if 'Supported' in line_stripped:
+                             metal_supported = True
+                             # Try to extract feature set
+                             if 'feature set' in line_stripped:
+                                 try:
+                                     metal_feature_set = line_stripped.split('feature set', 1)[1].strip()
+                                 except IndexError:
+                                     pass # Keep default "Unknown" if parsing fails
+                             # If Metal is supported for this GPU, assign its cores
+                             if current_gpu_cores > 0:
+                                 gpu_cores = current_gpu_cores
+                                 # Break here assuming we found the primary Metal GPU?
+                                 # Or continue to find the most capable one if multiple?
+                                 # Let's assume the first Metal-supported GPU with cores is the target.
+                                 break
+
+            except (subprocess.CalledProcessError, FileNotFoundError) as e_sp:
+                logging.error(f"Failed to run system_profiler SPDisplaysDataType: {e_sp}")
+                # Proceed with defaults if system_profiler fails
+
+            if not metal_supported:
+                 return {"supported": False, "reason": "Metal support not detected via system_profiler"}
+
+            # Determine recommended gpu_layers based on model size and detected cores
+            def get_recommended_layers(model_id, detected_gpu_cores):
+                # Default conservative value if cores not detected
+                cores_to_use = detected_gpu_cores if detected_gpu_cores > 0 else 8
+
+                # Simple logic based on model name identifier
+                if '4b' in model_id.lower():
+                    # More layers for smaller models, up to available cores
+                    return min(cores_to_use, 16) # Cap at 16 as a reasonable upper limit
+                elif '7b' in model_id.lower() or '8b' in model_id.lower():
+                    # Medium layers for medium models
+                    return min(cores_to_use, 12) # Cap at 12
+                elif '13b' in model_id.lower() or '15b' in model_id.lower():
+                     # Fewer layers for larger models
+                     return min(cores_to_use, 10) # Cap at 10
+                else:
+                    # Conservative default for unknown/larger sizes
+                    return min(cores_to_use, 8) # Cap at 8
+
+            return {
+                "supported": True,
+                "gpu_model": gpu_model,
+                "gpu_cores": gpu_cores,
+                "feature_set": metal_feature_set,
+                "recommended_formats": ["Q4_1", "Q5_K_M", "IQ4_NL"], # General recommendations
+                "get_recommended_layers": get_recommended_layers # Return the function itself
+            }
+        except Exception as e:
+            logging.error(f"Error detecting Metal capabilities: {e}", exc_info=True) # Log traceback
+            return {"supported": False, "reason": f"Unexpected error: {e}"}

@@ -329,11 +329,21 @@ class DocumentProcessor(QObject):
             # Simple progress simulation during eval
             total_tokens_to_eval = len(tokens)
             processed_tokens = 0
-            
-            # Process tokens in batches
+
+            # Adjust batch size based on document size for improved performance (as per plan)
+            base_batch_size = llm.n_batch # Access attribute directly, not call method
+            if token_count > 10000:
+                # For large documents, start with smaller batches
+                adaptive_batch_size = min(256, base_batch_size) # Use 256 or model's batch size, whichever is smaller
+                logging.info(f"Large document detected ({token_count} tokens > 10000), using adaptive batch size: {adaptive_batch_size} (Base: {base_batch_size})")
+            else:
+                adaptive_batch_size = base_batch_size # Use the model's default batch size
+                logging.info(f"Using standard batch size: {adaptive_batch_size}")
+
+            # Process tokens in batches using the adaptive size
             try:
-                for i in range(0, total_tokens_to_eval, batch_size):
-                    batch = tokens[i:min(i + batch_size, total_tokens_to_eval)]
+                for i in range(0, total_tokens_to_eval, adaptive_batch_size): # Use adaptive_batch_size
+                    batch = tokens[i:min(i + adaptive_batch_size, total_tokens_to_eval)] # Use adaptive_batch_size
                     if not batch:
                         break
                         
@@ -348,10 +358,10 @@ class DocumentProcessor(QObject):
                     self.processing_progress.emit(document_id, progress)
                     
                     # Detailed logging for batches
-                    if i % (5 * batch_size) == 0 or i == 0:  # Log every 5 batches or first batch
+                    if i % (5 * adaptive_batch_size) == 0 or i == 0:  # Log every 5 batches or first batch, using adaptive size
                         batch_time = batch_end_time - batch_start_time
                         tokens_per_sec = len(batch) / batch_time if batch_time > 0 else 0
-                        logging.info(f"Processed batch {i//batch_size + 1}/{(total_tokens_to_eval + batch_size - 1)//batch_size}: "
+                        logging.info(f"Processed batch {i//adaptive_batch_size + 1}/{(total_tokens_to_eval + adaptive_batch_size - 1)//adaptive_batch_size}: " # Use adaptive size in calculation
                                     f"{len(batch)} tokens in {batch_time:.2f}s ({tokens_per_sec:.1f} tokens/sec), "
                                     f"Progress: {processed_tokens}/{total_tokens_to_eval} tokens ({progress}%)")
             except Exception as eval_error:

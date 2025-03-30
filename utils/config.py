@@ -66,12 +66,56 @@ class ConfigManager:
                 json.dump({}, f, indent=2)
             return {}
         # Load user config
+        user_config = {} # Initialize empty dict
         try:
             with open(self.user_config_file, 'r') as f:
-                return json.load(f)
+                user_config = json.load(f)
+
+            # Add default Metal configuration for Apple Silicon on first load (as per plan)
+            if sys.platform == 'darwin' and not user_config.get('METAL_CONFIG_INITIALIZED', False):
+                logging.info("Initializing default Metal configuration for macOS user.")
+                user_config['METAL_ENABLED'] = True
+                user_config['METAL_MEMORY_MB'] = 4096 # Default 4GB
+                user_config['METAL_PROFILE'] = 'balanced' # Default profile
+                user_config['METAL_CONFIG_INITIALIZED'] = True # Flag to prevent re-initialization
+
+                # Save these defaults immediately back to the user config file
+                try:
+                    with open(self.user_config_file, 'w') as f_save:
+                        json.dump(user_config, f_save, indent=2)
+                    logging.info("Saved initial default Metal settings to config.json.")
+                except Exception as e_save:
+                    logging.error(f"Failed to save initial Metal defaults: {e_save}")
+                    # Continue without saving defaults if error occurs
+
+            return user_config # Return the potentially modified config
+
+        except FileNotFoundError:
+             # If file doesn't exist yet, create it with defaults (including Metal if applicable)
+             logging.info(f"User config file not found at {self.user_config_file}. Creating with defaults.")
+             default_config = {}
+             if sys.platform == 'darwin':
+                 logging.info("Applying default Metal configuration for new macOS user.")
+                 default_config['METAL_ENABLED'] = True
+                 default_config['METAL_MEMORY_MB'] = 4096
+                 default_config['METAL_PROFILE'] = 'balanced'
+                 default_config['METAL_CONFIG_INITIALIZED'] = True
+             try:
+                 with open(self.user_config_file, 'w') as f_create:
+                     json.dump(default_config, f_create, indent=2)
+                 return default_config
+             except Exception as e_create:
+                 logging.error(f"Failed to create default user config file: {e_create}")
+                 return {} # Return empty if creation fails
+
+        except json.JSONDecodeError as e_json:
+             logging.error(f"Error decoding user config JSON: {e_json}. Returning empty config.")
+             # Optionally: Backup corrupted file?
+             return {}
         except Exception as e:
             logging.error(f"Failed to load user config: {str(e)}")
-            return {}
+            return {} # Return empty on other errors
+
     def save_config(self):
         """Save configuration to files"""
         # Save user config

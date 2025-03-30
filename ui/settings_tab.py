@@ -9,7 +9,8 @@ from pathlib import Path
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QGroupBox, QFormLayout, QFileDialog,
-    QCheckBox, QSpinBox, QMessageBox, QProgressDialog
+    QCheckBox, QSpinBox, QMessageBox, QProgressDialog,
+    QSlider, QComboBox # Added for Metal settings
 )
 from PyQt5.QtCore import Qt, pyqtSignal, QTimer, QThread, QObject
 from core.llama_manager import LlamaManager
@@ -178,6 +179,43 @@ class SettingsTab(QWidget):
 
         layout.addWidget(model_group)
 
+        # GPU-specific settings for Apple Silicon (Metal)
+        if sys.platform == 'darwin':
+            metal_group = QGroupBox("Metal Acceleration (Apple Silicon)")
+            metal_layout = QFormLayout(metal_group)
+
+            self.metal_enabled_checkbox = QCheckBox("Enable Metal Acceleration")
+            self.metal_enabled_checkbox.setChecked(True) # Default to enabled
+            metal_layout.addRow("Metal:", self.metal_enabled_checkbox)
+
+            # Memory allocation slider
+            self.metal_memory_slider = QSlider(Qt.Horizontal)
+            self.metal_memory_slider.setRange(1024, 16384)  # 1GB to 16GB (adjust max based on typical systems)
+            self.metal_memory_slider.setValue(4096)        # Default 4GB
+            self.metal_memory_slider.setTickPosition(QSlider.TicksBelow)
+            self.metal_memory_slider.setTickInterval(1024)
+            self.metal_memory_slider.setSingleStep(512) # Step by 512MB
+
+            memory_layout = QHBoxLayout()
+            memory_layout.addWidget(self.metal_memory_slider)
+            self.memory_label = QLabel("4096 MB")
+            memory_layout.addWidget(self.memory_label)
+
+            metal_layout.addRow("Metal Memory:", memory_layout)
+
+            # Add performance profile selection
+            self.metal_profile_combo = QComboBox()
+            self.metal_profile_combo.addItem("Balanced", "balanced")
+            self.metal_profile_combo.addItem("Performance", "performance")
+            self.metal_profile_combo.addItem("Efficiency", "efficiency")
+            metal_layout.addRow("Performance Profile:", self.metal_profile_combo)
+
+            # Add detect button
+            self.detect_metal_button = QPushButton("Detect Optimal Settings")
+            metal_layout.addRow("Auto-Configure:", self.detect_metal_button)
+
+            layout.addWidget(metal_group)
+
         # n8n settings group
         n8n_group = QGroupBox("n8n Integration")
         n8n_layout = QFormLayout(n8n_group)
@@ -248,6 +286,15 @@ class SettingsTab(QWidget):
         # Connect Analyze button
         self.analyze_button.clicked.connect(self.analyze_model_output_patterns)
 
+        # Connect Metal UI elements if they exist (macOS only)
+        if sys.platform == 'darwin' and hasattr(self, 'metal_memory_slider'):
+            # Connect slider value change to update label
+            self.metal_memory_slider.valueChanged.connect(
+                lambda v: self.memory_label.setText(f"{v} MB")
+            )
+            # Connect detect button
+            self.detect_metal_button.clicked.connect(self.detect_optimal_metal_settings)
+
     def load_settings(self):
         """Load settings from config"""
         # Paths
@@ -265,7 +312,20 @@ class SettingsTab(QWidget):
         # n8n settings
         self.n8n_host_edit.setText(self.config.get('N8N_HOST', 'localhost'))
         self.n8n_port_spin.setValue(int(self.config.get('N8N_PORT', '5678')))
-        
+
+        # Load Metal settings if on macOS
+        if sys.platform == 'darwin' and hasattr(self, 'metal_enabled_checkbox'):
+            self.metal_enabled_checkbox.setChecked(self.config.get('METAL_ENABLED', True))
+            self.metal_memory_slider.setValue(int(self.config.get('METAL_MEMORY_MB', 4096)))
+            profile_data = self.config.get('METAL_PROFILE', 'balanced')
+            profile_index = self.metal_profile_combo.findData(profile_data)
+            if profile_index >= 0:
+                self.metal_profile_combo.setCurrentIndex(profile_index)
+            else:
+                self.metal_profile_combo.setCurrentIndex(0) # Default to Balanced if not found
+            # Update memory label based on loaded slider value
+            self.memory_label.setText(f"{self.metal_memory_slider.value()} MB")
+
         # Update n8n status
         self.update_n8n_status(self.n8n_interface.is_running())
         
@@ -298,7 +358,15 @@ class SettingsTab(QWidget):
         # n8n settings
         self.config['N8N_HOST'] = self.n8n_host_edit.text()
         self.config['N8N_PORT'] = str(self.n8n_port_spin.value())
-        
+
+        # Save Metal settings if on macOS
+        if sys.platform == 'darwin' and hasattr(self, 'metal_enabled_checkbox'):
+            self.config['METAL_ENABLED'] = self.metal_enabled_checkbox.isChecked()
+            self.config['METAL_MEMORY_MB'] = self.metal_memory_slider.value()
+            self.config['METAL_PROFILE'] = self.metal_profile_combo.currentData()
+            # Mark that Metal config has been initialized/saved at least once
+            self.config['METAL_CONFIG_INITIALIZED'] = True
+
         # Save config
         self.config_manager.save_config()
         
@@ -332,7 +400,14 @@ class SettingsTab(QWidget):
         self.gpu_layers_spin.setValue(0) # Default 0 (CPU)
         self.n8n_host_edit.setText('localhost')
         self.n8n_port_spin.setValue(5678)
-        
+
+        # Reset Metal settings if on macOS
+        if sys.platform == 'darwin' and hasattr(self, 'metal_enabled_checkbox'):
+            self.metal_enabled_checkbox.setChecked(True)
+            self.metal_memory_slider.setValue(4096)
+            self.metal_profile_combo.setCurrentIndex(0) # Balanced
+            self.memory_label.setText("4096 MB")
+
         # Update status
         self.status_label.setText("Settings reset to defaults (not saved)")
         
@@ -476,3 +551,98 @@ class SettingsTab(QWidget):
         # progress.setWindowModality(Qt.WindowModal)
         # progress.show()
         # # Create and start worker thread...
+
+    # --- Metal Auto-Configuration ---
+    def detect_optimal_metal_settings(self):
+        """Detect optimal Metal settings based on hardware (macOS only)"""
+        if sys.platform != 'darwin':
+            QMessageBox.information(self, "Metal Detection", "Metal detection is only available on macOS.")
+            return
+
+        try:
+            # Get Metal capabilities from llama_manager
+            capabilities = self.llama_manager.detect_metal_capabilities()
+
+            if not capabilities.get("supported", False):
+                QMessageBox.information(
+                    self, "Metal Detection",
+                    f"Metal acceleration not supported or detection failed: {capabilities.get('reason', 'Unknown reason')}"
+                )
+                return
+
+            # --- Calculate optimal values ---
+            gpu_cores = capabilities.get("gpu_cores", 0)
+            gpu_model = capabilities.get("gpu_model", "Unknown")
+            feature_set = capabilities.get("feature_set", "Unknown")
+            get_rec_layers_func = capabilities.get("get_recommended_layers")
+
+            # Set GPU layers based on cores and model (if function available)
+            optimal_layers = 0
+            current_model_id = self.config_manager.get('CURRENT_MODEL_ID', '') # Get current model ID
+            if get_rec_layers_func and current_model_id:
+                 optimal_layers = get_rec_layers_func(current_model_id, gpu_cores)
+                 logging.info(f"Recommended GPU layers for model '{current_model_id}' with {gpu_cores} cores: {optimal_layers}")
+            elif gpu_cores > 0:
+                 # Fallback based only on cores if function or model ID missing
+                 optimal_layers = min(gpu_cores, 12) # Conservative fallback
+                 logging.warning(f"Using fallback GPU layer calculation based on cores: {optimal_layers}")
+            else:
+                 optimal_layers = 0 # Default to 0 if no cores detected
+                 logging.warning("Could not detect GPU cores, defaulting GPU layers to 0.")
+
+            self.gpu_layers_spin.setValue(optimal_layers)
+
+            # Set memory allocation based on system memory
+            metal_memory_mb = 4096 # Default
+            try:
+                import subprocess
+                # Get total physical memory using sysctl
+                memory_info = subprocess.check_output(['sysctl', '-n', 'hw.memsize'], text=True, stderr=subprocess.PIPE).strip()
+                total_memory_bytes = int(memory_info)
+                total_memory_gb = total_memory_bytes / (1024**3)
+                logging.info(f"Detected total system memory: {total_memory_gb:.2f} GB")
+
+                # Allocate ~1/3 of system memory to Metal, capped between 2GB and 12GB
+                calculated_mem_mb = int(total_memory_bytes / (1024**2) / 3)
+                metal_memory_mb = max(2048, min(calculated_mem_mb, 12288)) # Clamp between 2GB and 12GB
+                logging.info(f"Calculated optimal Metal memory: {metal_memory_mb} MB")
+
+            except (subprocess.CalledProcessError, FileNotFoundError, ValueError) as e_mem:
+                logging.error(f"Failed to detect system memory via sysctl: {e_mem}. Using default Metal memory (4096 MB).")
+                metal_memory_mb = 4096 # Fallback default
+
+            self.metal_memory_slider.setValue(metal_memory_mb)
+            self.memory_label.setText(f"{metal_memory_mb} MB") # Update label immediately
+
+            # Update profile based on device type (heuristic)
+            # Assume 'mini' might benefit from 'Performance' due to active cooling
+            # Assume MacBooks might prefer 'Balanced' or 'Efficiency'
+            # This is a rough guess and might need refinement
+            profile_index = 0 # Default to Balanced
+            if 'mini' in gpu_model.lower():
+                 profile_index = 1 # Performance
+            elif 'macbook' in gpu_model.lower():
+                 profile_index = 0 # Balanced
+            # Add more heuristics if needed
+
+            self.metal_profile_combo.setCurrentIndex(profile_index)
+
+            # --- Show results ---
+            QMessageBox.information(
+                self, "Metal Detection Complete",
+                f"Applied suggested Metal settings based on detected hardware:\n\n"
+                f"- GPU Model: {gpu_model}\n"
+                f"- GPU Cores: {gpu_cores if gpu_cores > 0 else 'Not Detected'}\n"
+                f"- Metal Feature Set: {feature_set}\n\n"
+                f"- Suggested GPU Layers: {optimal_layers} (for current model: {current_model_id or 'None Selected'})\n"
+                f"- Suggested Metal Memory: {metal_memory_mb} MB\n"
+                f"- Suggested Profile: {self.metal_profile_combo.currentText()}\n\n"
+                f"Recommended model formats: {', '.join(capabilities.get('recommended_formats', ['N/A']))}\n\n"
+                f"Please review and save these settings if they look correct."
+            )
+        except Exception as e:
+            logging.error("Error during optimal Metal settings detection", exc_info=True)
+            QMessageBox.warning(
+                self, "Metal Detection Error",
+                f"Failed to detect optimal Metal settings: {str(e)}"
+            )
