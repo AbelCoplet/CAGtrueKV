@@ -59,7 +59,7 @@ class WelcomeDialog(QDialog):
 
         guide_text = """
         <ol>
-            <li><b>Download/Select a Model:</b> Go to the '<b>Models</b>' tab. Download a model (e.g., Gemma 3 4B Q4_K_M for a good balance of speed and capability) or import one (GGUF format). <b>Select the model you want to use for processing and chatting.</b></li>
+            <li><b>Download/Select a Model:</b> Go to the '<b>Models</b>' tab. Download a model (e.g., <code>google/gemma-3-4b-it-Q4_1.gguf</code> which is well-tested with this app) or import one (GGUF format). <b>Select the model you want to use for processing and chatting.</b></li>
 
             <li><b>Process Your Document:</b> Go to the '<b>Documents</b>' tab. Select your text file (<code>.txt</code>, <code>.md</code>). Click '<b>Create KV Cache</b>'.
                 <ul><li>This uses the <i>currently selected model</i> to read the document and save its KV Cache.</li>
@@ -71,11 +71,18 @@ class WelcomeDialog(QDialog):
             <li><b>Load Context & Chat:</b> Go to the '<b>Chat</b>' tab and ensure '<b>Use KV Cache</b>' is checked.
                 <ul><li><b>Method A (Specific Cache):</b> Go to '<b>KV Cache Monitor</b>', select the cache for your document, click '<b>Use Selected</b>'. This guarantees you're chatting with that specific document's context.</li>
                     <li><b>Method B (Master Cache):</b> If you set a Master Cache and haven't specifically selected another one via the Monitor, the Chat tab will use the Master Cache by default.</li>
-                    <li><b>Method C (Warm-Up - Recommended for Performance):</b> After selecting a cache (Method A or B), click the '<b>Warm Up Cache</b>' button in the Chat tab. This pre-loads the model and cache into memory for the fastest possible responses during your chat session.</li>
+                    <li><b>Method C (Warm-Up - Recommended for Performance):</b> After selecting a cache (Method A or B), click the '<b>Warm Up Cache</b>' button in the Chat tab. This pre-loads the model and cache into memory.</li>
+                    <li><b>Cache Behavior (When Warmed Up):</b> Choose how the cache behaves during the session using the radio buttons:
+                        <ul>
+                            <li><b>Standard (State Persists):</b> Fastest for conversation. The model's memory (cache state) evolves as you chat.</li>
+                            <li><b>Fresh Context (Reload Before Query):</b> Guarantees statelessness. Reloads the clean, original cache *before* each query. Slightly slower than Standard but ensures each answer starts fresh. Ideal for testing/automation.</li>
+                            <li><b>Fresh Context (Reload After Query):</b> Experimental. Reloads the clean cache *after* each query. Might feel faster for the current query, but the response uses the previous state.</li>
+                        </ul>
+                    </li>
                 </ul>
             </li>
 
-            <li><b>Ask Questions:</b> Type your question and hit Send. The model will answer based *only* on the loaded document context.</li>
+            <li><b>Ask Questions:</b> Type your question and hit Send. The model will answer based *only* on the loaded document context, respecting the chosen Cache Behavior mode.</li>
         </ol>
         <p><b><font color='red'>VERY IMPORTANT:</font> KV Caches are Model-Specific!</b> A cache created with Model A <u>cannot</u> be used with Model B. You must create a separate cache for each document *using the specific model* you intend to chat with.</p>
         """

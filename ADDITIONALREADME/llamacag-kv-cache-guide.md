@@ -96,28 +96,34 @@ This is not a user-selectable mode but a recovery mechanism that happens if KV c
 
 **Key benefit**: After the initial warm-up, responses are nearly instantaneous because everything is already loaded and ready in memory.
 
-#### 6. Fresh Context Mode (Coming Soon)
+#### 6. Fresh Context Modes (Selectable in Chat Tab)
 
-**How it will work**:
-- Similar to Warm-Up Mode but with a crucial difference
-- Model stays loaded in memory (fast)
-- Each query reloads the original cache state (reset document context)
-- Conversation history won't accumulate in the model's state
-- Slightly slower than Warm-Up but still very fast
+These modes build on Warm-Up Mode but ensure the document context doesn't get modified by the conversation history. Choose the mode via the radio buttons in the Chat tab:
+
+*   **Fresh Context (Reload Before Query):**
+    *   **How it works:** Model stays loaded. Before each query is processed, the original, clean KV cache state is reloaded from disk.
+    *   **Benefit:** Guarantees every response is generated starting from the pristine document context. Ideal for testing, automation, or ensuring strict statelessness.
+    *   **Performance:** Slightly slower than Standard Warm-Up due to the reload before each query, but still very fast compared to non-warmed modes.
+
+*   **Fresh Context (Reload After Query):** (Experimental)
+    *   **How it works:** Model stays loaded. The current query is processed using the state left over from the previous interaction. *After* the response is generated, the original, clean KV cache state is reloaded in the background to prepare for the *next* query.
+    *   **Benefit:** May feel slightly faster for the current query as the reload happens afterwards.
+    *   **Trade-off:** The response to the current query is generated using the potentially modified state from the previous turn, not a guaranteed clean state.
+    *   **Performance:** Similar overall speed to "Reload Before", but the perceived latency shifts.
 
 ## Performance Comparison Matrix
 
-| Feature | Traditional Text Insertion | KV Cache Disabled | Basic KV Cache | Warm-Up Mode | Fresh Context Mode (Coming) |
-|---------|----------------------------|-------------------|----------------|--------------|----------------------------|
-| **Initial Setup** | None | None | None | Slow (one-time) | Slow (one-time) |
-| **Initial Query Speed** | Slow (processes document + query each time) | Medium (loads model + query) | Slow (loads model + cache + query) | **INSTANT** (after warm-up) | **INSTANT** (after warm-up) |
-| **Follow-up Speed** | Slow (reprocesses document each time) | Medium (reloads model) | Slow (reloads model + cache) | **INSTANT** | **INSTANT** (slightly slower than warm-up) |
-| **Memory Usage** | Moderate (per query) | Low-Moderate | Moderate (released after each query) | High & grows over time | High but stable |
-| **Document Context** | Complete, but uses tokens for both doc and query | No document context | Full document | Full document | Full document |
-| **Conversation Memory** | Only if manually included | Yes | Yes (limited by implementation) | Yes (accumulates in state) | No (resets each time) |
-| **Best Use Case** | Simple questions, infrequent use | General chat | Low memory, occasional queries | Interactive document sessions | Automated/agent integrations |
-| **Stability for Long Sessions** | Moderate (repeats processing) | Good | Good | Poor (memory growth) | Good |
-| **Document Size** | Same limits as KV cache (model context window) | N/A | Up to 128K tokens | Up to 128K tokens | Up to 128K tokens |
+| Feature | Traditional Text Insertion | KV Cache Disabled | Basic KV Cache | Standard Warm-Up | Fresh (Reload Before) | Fresh (Reload After) |
+|---------|----------------------------|-------------------|----------------|------------------|-----------------------|----------------------|
+| **Initial Setup** | None | None | None | Slow (one-time) | Slow (one-time) | Slow (one-time) |
+| **Initial Query Speed** | Slow (processes document + query each time) | Medium (loads model + query) | Slow (loads model + cache + query) | **INSTANT** (after warm-up) | **INSTANT** (after warm-up, includes reload) | **INSTANT** (after warm-up) |
+| **Follow-up Speed** | Slow (reprocesses document each time) | Medium (reloads model) | Slow (reloads model + cache) | **INSTANT** | **NEAR-INSTANT** (includes reload before) | **NEAR-INSTANT** (includes reload after previous) |
+| **Memory Usage** | Moderate (per query) | Low-Moderate | Moderate (released after each query) | High & grows over time | High but stable | High but stable |
+| **Document Context** | Complete, but uses tokens for both doc and query | No document context | Full document | Full document | Full document | Full document |
+| **Conversation Memory** | Only if manually included | Yes | Yes (limited by implementation) | Yes (accumulates in state) | No (resets each time) | No (resets each time) |
+| **Best Use Case** | Simple questions, infrequent use | General chat | Low memory, occasional queries | Interactive document sessions | Automated/agent integrations, testing | Experimental |
+| **Stability for Long Sessions** | Moderate (repeats processing) | Good | Good | Poor (memory growth) | Good | Good |
+| **Document Size** | Same limits as KV cache (model context window) | N/A | Up to 128K tokens | Up to 128K tokens | Up to 128K tokens | Up to 128K tokens |
 
 ### Key Performance Insights
 
@@ -318,7 +324,7 @@ LlamaCag is designed with automation in mind. The N8N integration (in developmen
    
    1. User Question: "What are the safety protocols for chemical X?"
    2. RAG System: "Mix chemical X with water to neutralize it" (INCORRECT)
-   3. LlamaCag Validation: "REJECTED - Safety manual clearly states on page 37 
+   3. LlamaCag Validation (using Fresh Context - Reload Before): "REJECTED - Safety manual clearly states on page 37 
       that chemical X reacts violently with water. Correct protocol is to use 
       neutralizing agent Y."
    4. System reprocesses with this correction
@@ -328,7 +334,7 @@ LlamaCag is designed with automation in mind. The N8N integration (in developmen
 
 3. **Automated Document Processing**: N8N workflows can automatically submit documents for processing and later query them.
 
-The planned "Fresh Context Mode" is critical for these integrations, ensuring each API call gets a clean, consistent context state without any previous conversation history contaminating the responses.
+The "Fresh Context (Reload Before Query)" mode is critical for these integrations, ensuring each API call gets a clean, consistent context state without any previous conversation history contaminating the responses.
 
 ### Enterprise Chatbots
 
@@ -406,10 +412,10 @@ For optimal performance, configure GPU acceleration in the Settings tab:
 ## Future Directions
 
 The development roadmap includes:
-1. **Fresh Context Mode**: Implementing the reset functionality for stateless queries
+1. **Refinement of Cache Modes**: Further testing and optimization of the different cache behavior modes.
 2. **Multi-document Support**: Processing and correlating multiple documents together
 3. **Enhanced N8N Integration**: Robust API for automated workflows
-4. **Memory Management**: Improved handling of long conversations
+4. **Memory Management**: Improved handling of long conversations in Standard mode
 5. **Multi-step Validation**: Advanced verification of outputs against source material
 
 ## Conclusion

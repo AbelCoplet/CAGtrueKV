@@ -59,15 +59,30 @@ class ChatEngine(QObject):
         self.warmed_cache_path: Optional[str] = None # Cache loaded in persistent_llm
         self._lock = threading.Lock() # Protect access to persistent_llm and related state
 
-        # Add state tracking for post-recitation
-        self._post_recitation = False  # Track if previous turn was recitation
-
         # Config setting for true KV cache logic
         self.use_true_kv_cache_logic = self.config_manager.get('USE_TRUE_KV_CACHE', True)
-        # Fresh Context Mode setting
-        self.fresh_context_mode = self.config_manager.get('USE_FRESH_CONTEXT', False)
+        # Cache Behavior Mode setting (replaces old fresh_context_mode)
+        # Modes: "standard", "fresh_before", "fresh_after"
+        self.cache_behavior_mode = self.config_manager.get('CACHE_BEHAVIOR_MODE', 'standard')
         self.debug_token_generation = False # Toggle for detailed token debugging
-        logging.info(f"ChatEngine initialized. True KV Cache Logic: {self.use_true_kv_cache_logic}, Fresh Context Mode: {self.fresh_context_mode}")
+        logging.info(f"ChatEngine initialized. True KV Cache Logic: {self.use_true_kv_cache_logic}, Cache Behavior Mode: {self.cache_behavior_mode}")
+
+    # Add a method to set the cache behavior mode
+    def set_cache_behavior_mode(self, mode: str):
+        """Sets the cache behavior mode ('standard', 'fresh_before', 'fresh_after')."""
+        valid_modes = ["standard", "fresh_before", "fresh_after"]
+        if mode not in valid_modes:
+            logging.warning(f"Invalid cache behavior mode '{mode}'. Defaulting to 'standard'.")
+            mode = "standard"
+
+        with self._lock: # Ensure thread safety when changing mode
+            self.config_manager.set('CACHE_BEHAVIOR_MODE', mode) # Update runtime config
+            self.cache_behavior_mode = mode
+            logging.info(f"Cache behavior mode set to: {self.cache_behavior_mode}")
+            # Emit status change to update UI elements potentially
+            status_msg = f"Cache Mode: {mode.replace('_', ' ').title()}"
+            self.cache_status_changed.emit(status_msg)
+            self.status_updated.emit(status_msg) # Also update main status bar
 
     # Add a method to toggle debugging
     def toggle_token_debugging(self, enabled: bool):
@@ -86,9 +101,23 @@ class ChatEngine(QObject):
                 self.error_occurred.emit(error_msg)
                 return False
 
+            # --- Strict Model Compatibility Check ---
+            current_model_id = self.config_manager.get('CURRENT_MODEL_ID')
+            cache_info = self.cache_manager.get_cache_info(str(cache_path))
+            cache_model_id = cache_info.get('model_id') if cache_info else None
+
+            if cache_model_id and current_model_id and cache_model_id != current_model_id:
+                error_msg = f"Cache '{cache_path.name}' created with model '{cache_model_id}' is incompatible with current model '{current_model_id}'."
+                logging.error(error_msg)
+                self.error_occurred.emit(error_msg)
+                # Do not set the cache path if incompatible
+                return False
+            elif not cache_model_id:
+                logging.warning(f"Cache '{cache_path.name}' has no model ID metadata. Assuming compatible, but use with caution.")
+            # --- End Check ---
+
             self.current_kv_cache_path = str(cache_path)
             logging.info(f"Set current KV cache path to {self.current_kv_cache_path}")
-            # TODO: Verify cache compatibility with current model?
             return True
         else:
             # If clearing selection, unload any warmed cache
@@ -109,17 +138,6 @@ class ChatEngine(QObject):
         # Emit specific status for chat tab display
         self.cache_status_changed.emit("Idle" if not self.warmed_cache_path else "Warmed Up")
 
-    def enable_fresh_context_mode(self, enabled: bool):
-        """Enable or disable Fresh Context Mode."""
-        with self._lock: # Ensure thread safety when changing mode
-            self.config_manager.set('USE_FRESH_CONTEXT', enabled) # Update runtime config
-            self.fresh_context_mode = enabled
-            logging.info(f"Fresh Context Mode {'enabled' if enabled else 'disabled'}")
-            # Emit status change to update UI elements potentially
-            status_msg = f"Fresh Context Mode: {'Enabled' if enabled else 'Disabled'}"
-            self.cache_status_changed.emit(status_msg)
-            self.status_updated.emit(status_msg) # Also update main status bar
-
     # --- Detect recitation command ---
     def _is_recitation_command(self, message: str) -> Tuple[bool, str]:
         """
@@ -129,39 +147,46 @@ class ChatEngine(QObject):
         # Convert to lowercase and strip for consistent comparison
         msg = message.lower().strip()
 
-        # Primary recitation commands - explicit list
-        simple_commands = [
-            "recite", "recite document", "recite the document",
-            "start from beginning", "start from the beginning", 
-            "show document from beginning", "read from start",
-            "read from the beginning", "recite from the beginning"
+        # --- Check for ANY Recitation Command (Paragraph or Generic) ---
+        # Simplify: If any recitation pattern matches, treat it as a generic request
+        # to recite from the beginning. Paragraph-specific recitation is too unreliable.
+        recitation_patterns = [
+            r"(?:recite|read|show)\s+(?:the\s+)?document",
+            r"(?:recite|read|show)\s+from\s+(?:the\s+)?beginning",
+            r"start\s+from\s+(?:the\s+)?beginning",
+            r"(?:recite|read|show)\s+(?:the\s+)?(first|second|third|fourth|fifth|\d+)\s+paragraph", # Detect but ignore specificity
+            r"^recite$" # Exact command
         ]
+        is_recitation = False
+        for pattern in recitation_patterns:
+            try:
+                if re.search(pattern, msg):
+                    is_recitation = True
+                    break
+            except re.error as re_err:
+                logging.error(f"Regex error during recitation detection (pattern: {pattern}): {re_err}")
+                continue # Try next pattern
 
-        # Check for exact matches first
-        for cmd in simple_commands:
-            if msg == cmd:
-                logging.info(f"Detected exact recitation command: '{msg}'")
-                return True, "Please recite the document from the very beginning."
-                
-        # Then check for prefix matches (more precise than substring)
-        for cmd in simple_commands:
-            if msg.startswith(cmd):
-                logging.info(f"Detected recitation command prefix: '{msg}'")
-                return True, "Please recite the document from the very beginning."
-                
-        # Check for specific paragraph recitation patterns
-        paragraph_patterns = [
-            "first paragraph", "paragraph one", "1st paragraph",
-            "first two paragraphs", "first 2 paragraphs"
-        ]
-        
-        for pattern in paragraph_patterns:
-            if pattern in msg:
-                logging.info(f"Detected paragraph recitation: '{msg}'")
-                return True, "Please recite the requested paragraphs from the document."
-        
-        # Not a recitation command
-        return False, message
+        # Check simple prefix/exact matches as fallback
+        if not is_recitation:
+            # Check simple prefixes
+            simple_prefixes = ["recite", "read", "show"]
+            for prefix in simple_prefixes:
+                 if msg.startswith(prefix):
+                      # Check if it's likely a QA question despite the prefix
+                      if "what" in msg or "who" in msg or "when" in msg or "where" in msg or "why" in msg or "how" in msg or "?" in msg:
+                           continue # Likely QA, not recitation
+                      is_recitation = True
+                      break
+
+        if is_recitation:
+            # Always use the generic prompt now
+            modified_prompt = "Please recite the document from the very beginning."
+            logging.info(f"Detected recitation command: '{msg}'. Using generic prompt: '{modified_prompt}'")
+            return True, modified_prompt
+        else:
+            # Not a recitation command
+            return False, message
 
     # --- Warm-up and Unload Methods ---
     def warm_up_cache(self, cache_path: str):
@@ -185,8 +210,23 @@ class ChatEngine(QObject):
                 self.cache_status_changed.emit("Warmed Up")
                 return
 
-            # Get required model info from cache metadata
+            # --- Strict Model Compatibility Check ---
+            current_model_id = self.config_manager.get('CURRENT_MODEL_ID')
             cache_info = self.cache_manager.get_cache_info(cache_path)
+            cache_model_id = cache_info.get('model_id') if cache_info else None
+
+            if cache_model_id and current_model_id and cache_model_id != current_model_id:
+                error_msg = f"Cannot warm up: Cache '{Path(cache_path).name}' (model: {cache_model_id}) is incompatible with current model '{current_model_id}'."
+                logging.error(error_msg)
+                self.error_occurred.emit(error_msg)
+                self.cache_status_changed.emit("Error")
+                return # Stop warm-up
+            elif not cache_model_id:
+                 logging.warning(f"Cache '{Path(cache_path).name}' has no model ID metadata. Assuming compatible for warm-up, but use with caution.")
+            # --- End Check ---
+
+            # Get required model info from cache metadata (use cache_info already fetched)
+            # cache_info = self.cache_manager.get_cache_info(cache_path) # Already fetched above
             if not cache_info:
                 logging.error(f"Failed to get cache info for warming up: {cache_path}")
                 self.error_occurred.emit(f"Failed to get cache info for: {Path(cache_path).name}")
@@ -195,10 +235,16 @@ class ChatEngine(QObject):
 
             required_model_id = cache_info.get('model_id')
             if not required_model_id:
-                logging.error(f"Cache info for {cache_path} is missing 'model_id'. Cannot warm up.")
-                self.error_occurred.emit(f"Cache '{Path(cache_path).name}' is missing model information.")
-                self.cache_status_changed.emit("Error")
-                return
+                # If cache_model_id was None above, we assume compatibility, but need a model to load.
+                # Use the current model as the best guess.
+                required_model_id = current_model_id
+                if not required_model_id:
+                    logging.error(f"Cache info for {cache_path} is missing 'model_id' and no current model selected. Cannot warm up.")
+                    self.error_occurred.emit(f"Cache '{Path(cache_path).name}' is missing model information and no model selected.")
+                    self.cache_status_changed.emit("Error")
+                    return
+                logging.warning(f"Cache '{Path(cache_path).name}' missing model ID, attempting warm-up with current model '{required_model_id}'.")
+
 
             model_info = self.model_manager.get_model_info(required_model_id)
             if not model_info or not model_info.get('path'):
@@ -313,7 +359,7 @@ class ChatEngine(QObject):
                 self.warmed_cache_path = None
 
                 # Reset other relevant state
-                self._post_recitation = False  # Reset post-recitation flag
+                # self._post_recitation = False # Removed
 
                 # Update UI status
                 self.cache_status_changed.emit("Idle (Reset)")
@@ -358,34 +404,37 @@ class ChatEngine(QObject):
         logging.debug(f"Context safety check using estimated message tokens: {message_tokens}")
 
         # --- Apply Mode-Specific Logic ---
-        if self.fresh_context_mode:
-            # In Fresh Context Mode, only document + new message + response matters
+        # Check if using any "fresh" mode
+        is_fresh_mode = self.cache_behavior_mode in ["fresh_before", "fresh_after"]
+
+        if is_fresh_mode:
+            # In Fresh Context Modes, only document + new message + response matters
             buffer = 256 # Small buffer for prompts/structure
             estimated_total = document_tokens + message_tokens + max_tokens_for_response + buffer
-            logging.debug(f"Fresh Context safety check: Estimated total = {estimated_total}")
+            logging.debug(f"Fresh Context ({self.cache_behavior_mode}) safety check: Estimated total = {estimated_total}")
 
             if estimated_total > context_size * 0.98: # Use a slightly higher threshold for hard limit
-                error_msg = (f"Potential context overflow in Fresh Context Mode. "
+                error_msg = (f"Potential context overflow in Fresh Context Mode ({self.cache_behavior_mode}). "
                              f"Estimated tokens ({estimated_total}) exceed 98% of limit ({context_size}). "
                              f"Try reducing 'Max Tokens' or using a smaller document.")
                 logging.error(error_msg)
                 return False, error_msg
             elif estimated_total > context_size * 0.90: # Warning threshold
-                warning_msg = (f"High context usage warning (Fresh Context Mode). "
+                warning_msg = (f"High context usage warning (Fresh Context Mode: {self.cache_behavior_mode}). "
                                f"Estimated tokens ({estimated_total}) > 90% of limit ({context_size}).")
                 logging.warning(warning_msg)
                 return True, warning_msg # Safe, but warn
             else:
                 return True, None # Safe
 
-        else:
-            # In Warmed-up Mode (NOT Fresh Context)
+        else: # Standard Mode
+            # In Standard Warmed-up Mode
             # The primary risk is the initial document size. Precise tracking is hard.
             # Simplified check: Warn if document itself is large.
             if document_tokens > context_size * 0.80:
-                warning_msg = (f"High context usage warning (Warmed-up Mode). "
+                warning_msg = (f"High context usage warning (Standard Mode). "
                                f"Document uses {document_tokens} tokens (>80% of limit {context_size}). "
-                               f"Conversation may lead to errors. Enable 'Fresh Context Mode' for stability.")
+                               f"Conversation may lead to errors. Consider using a 'Fresh Context' mode for stability.")
                 logging.warning(warning_msg)
                 # Emit warning to UI as well
                 self.status_updated.emit(warning_msg) # Use main status bar for this persistent warning
@@ -459,23 +508,11 @@ class ChatEngine(QObject):
             return results
 
     # --- Send Message Implementation ---
+    # Updated signature to accept temperature from UI
     def send_message(self, message: str, max_tokens: int = 1024, temperature: float = 0.7):
         """Send a message to the model and get a response with true KV caching support"""
 
-        # Check if we need to refresh state after recitation
-        if self._post_recitation and self.persistent_llm and self.warmed_cache_path:
-            logging.info("Detected first query after recitation, refreshing model state")
-            try:
-                with self._lock:
-                    if Path(self.warmed_cache_path).exists():
-                        with open(self.warmed_cache_path, 'rb') as f_pickle:
-                            state_data = pickle.load(f_pickle)
-                        self.persistent_llm.load_state(state_data)
-                        logging.info("Successfully refreshed model state after recitation")
-                    self._post_recitation = False  # Reset the flag
-            except Exception as e:
-                logging.warning(f"Failed to refresh state after recitation: {e}")
-                self._post_recitation = False  # Reset even on failure
+        # --- REMOVED Post-Recitation State Refresh Logic ---
 
         # --- Context Safety Check ---
         # Use the max_tokens value passed from the UI for the safety check
@@ -507,42 +544,8 @@ class ChatEngine(QObject):
                                  self.warmed_cache_path == self.current_kv_cache_path)
 
         if should_try_persistent:
-             # If Fresh Context, we need to reset state *before* the thread starts using it.
-             # This reset MUST be protected by the lock.
-             if self.fresh_context_mode:
-                 logging.info("Fresh Context Mode enabled. Attempting state reset before dispatching thread.")
-                 self.cache_status_changed.emit("Fresh Context: Resetting...")
-                 reset_success = False
-                 with self._lock: # Acquire lock *only* for the reset operation
-                     try:
-                         if self.warmed_cache_path and Path(self.warmed_cache_path).exists():
-                             # Log cache file stats before loading
-                             cache_size = Path(self.warmed_cache_path).stat().st_size
-                             logging.debug(f"Reloading cache file: {self.warmed_cache_path}, size: {cache_size} bytes")
-                            
-                             with open(self.warmed_cache_path, 'rb') as f_pickle:
-                                 state_data = pickle.load(f_pickle)
-                             # Ensure persistent_llm still exists (could have been reset by another thread)
-                             if self.persistent_llm:
-                                 # Log before state reset
-                                 logging.debug("About to reset persistent_llm state with loaded cache data")
-                                 self.persistent_llm.load_state(state_data)
-                                 logging.info("Fresh Context Mode: State reset successful.")
-                                 self.cache_status_changed.emit("Fresh Context: Reset OK")
-                                 reset_success = True
-                             else:
-                                 logging.warning("Persistent LLM disappeared during Fresh Context reset attempt.")
-                                 raise RuntimeError("Persistent LLM instance no longer available.")
-                         else:
-                             raise FileNotFoundError(f"Warmed cache path invalid for reset: {self.warmed_cache_path}")
-                     except Exception as e_reset:
-                         logging.error(f"Failed to reset state for Fresh Context Mode: {e_reset}")
-                         self.error_occurred.emit(f"Fresh Context Reset Failed: {e_reset}. Using temporary instance.")
-                         self.cache_status_changed.emit("Fresh Context: Reset Failed")
-                         # Do NOT proceed with persistent instance if reset failed
-                         should_try_persistent = False # Force fallback to temporary
-
-             # If we still intend to use persistent (reset ok or not needed)
+             # If we intend to use persistent instance
+             # (No pre-emptive reset needed here for Fresh Context, thread handles it)
              if should_try_persistent:
                  use_persistent_instance = True
                  llm_instance_to_use = self.persistent_llm # Pass the reference
@@ -557,7 +560,7 @@ class ChatEngine(QObject):
                      # model_id already fetched from config_manager
                      model_info = self.model_manager.get_model_info(model_id) if model_id else None
                      context_window = model_info.get('context_window', 4096) if model_info else 4096
-                 logging.info(f"Will use persistent {'(fresh context reset)' if self.fresh_context_mode else 'warmed-up'} instance. Model: {model_path}, Cache: {self.warmed_cache_path}")
+                 logging.info(f"Will use persistent instance (Mode: {self.cache_behavior_mode}). Model: {model_path}, Cache: {self.warmed_cache_path}")
 
         # If not using persistent, get info for temporary load
         if not use_persistent_instance:
@@ -620,16 +623,16 @@ class ChatEngine(QObject):
         # Pass the determined llm instance *reference* if using persistent, otherwise None
         llm_arg = llm_instance_to_use if use_persistent_instance else None
 
-        # --- Use a fixed low temperature for all requests to prioritize accuracy ---
-        fixed_low_temp = 0.1 # Hardcoded low temperature
-        logging.info(f"Using fixed low temperature for generation: {fixed_low_temp}")
+        # --- Use the temperature passed from the UI ---
+        # The fixed_low_temp variable is removed. Temperature is passed directly.
+        logging.info(f"Using temperature from UI: {temperature}")
 
-        # Pass the max_tokens value from the UI and the recitation flag
+        # Pass the max_tokens value and temperature from the UI, and the recitation flag
         inference_thread = threading.Thread(
             target=target_thread_func,
-            args=(message, model_path, model_id, context_window, 
-                  actual_kv_cache_path_for_inference, max_tokens, fixed_low_temp, # Pass fixed temp
-                  llm_arg, is_recitation_request, modified_message), 
+            args=(message, model_path, model_id, context_window,
+                  actual_kv_cache_path_for_inference, max_tokens, temperature, # Pass UI temperature
+                  llm_arg, is_recitation_request, modified_message), # Removed was_post_recitation_refresh flag
             daemon=True,
         )
         # Emit signal *before* starting thread so UI can disable input
@@ -641,9 +644,9 @@ class ChatEngine(QObject):
     # --- Inference thread with true KV cache logic ---
     # Modified to accept optional pre-loaded llm instance, model_id, and recitation flags
     def _inference_thread_with_true_kv_cache(self, message: str, model_path: str, model_id: str, context_window: int,
-                         kv_cache_path: Optional[str], max_tokens: int, temperature: float, 
-                         llm: Optional[Llama] = None, is_recitation_request: bool = False, 
-                         modified_message: str = None):
+                         kv_cache_path: Optional[str], max_tokens: int, temperature: float,
+                         llm: Optional[Llama] = None, is_recitation_request: bool = False,
+                         modified_message: str = None): # Removed was_post_recitation_refresh flag
         """
         Thread function for model inference using true KV cache loading.
         Can use a pre-loaded persistent llm instance or load temporarily.
@@ -688,24 +691,44 @@ class ChatEngine(QObject):
                 # For regular QA, use the configured values
                 logging.info(f"Using standard QA thresholds: repeat={repeat_threshold}, max_no_output={max_no_output}")
 
-            # --- Acquire lock ONLY if using the persistent instance ---
+            # --- Acquire lock and Handle Fresh Context Reload (if using persistent instance) ---
             if is_using_persistent_llm:
-                logging.debug("Attempting to acquire lock for persistent LLM in true KV thread.")
+                logging.debug("Attempting to acquire lock for persistent LLM.")
                 self._lock.acquire()
                 acquired_lock = True
-                logging.debug("Lock acquired for persistent LLM in true KV thread.")
+                logging.debug("Lock acquired for persistent LLM.")
+
                 # Verify persistent_llm still exists after acquiring lock
                 if not self.persistent_llm:
                      raise RuntimeError("Persistent LLM instance disappeared before inference.")
-                # Use the instance variable now we have the lock
-                llm = self.persistent_llm
+                llm = self.persistent_llm # Use the instance variable now we have the lock
+
+                # --- Handle Cache Reload Logic (Before Query) ---
+                if self.cache_behavior_mode == "fresh_before":
+                    logging.info(f"Cache Mode '{self.cache_behavior_mode}': Reloading KV cache state before query.")
+                    self.cache_status_changed.emit("Cache Mode: Reloading Before...")
+                    try:
+                        if self.warmed_cache_path and Path(self.warmed_cache_path).exists():
+                            with open(self.warmed_cache_path, 'rb') as f_pickle:
+                                state_data = pickle.load(f_pickle)
+                            llm.load_state(state_data)
+                            logging.info(f"Cache Mode '{self.cache_behavior_mode}': State reloaded successfully.")
+                            self.cache_status_changed.emit("Cache Mode: Reload OK")
+                        else:
+                            raise FileNotFoundError(f"Warmed cache path invalid for '{self.cache_behavior_mode}' reload: {self.warmed_cache_path}")
+                    except Exception as e_reload:
+                        logging.error(f"Cache Mode '{self.cache_behavior_mode}': Failed to reload state: {e_reload}")
+                        self.error_occurred.emit(f"Cache Reload Failed ({self.cache_behavior_mode}): {e_reload}")
+                        # Critical error if reload fails in fresh context, raise to stop processing
+                        raise RuntimeError(f"Cache state reload failed ({self.cache_behavior_mode}): {e_reload}") from e_reload
+                else:
+                    logging.debug(f"Cache Mode '{self.cache_behavior_mode}': Not reloading state before query.")
 
             # self.response_started.emit() # Moved to before thread start
             self.status_updated.emit("Processing...") # General status update
 
             if is_using_persistent_llm:
-                logging.info(f"True KV cache thread using PERSISTENT instance. Cache: {kv_cache_path}")
-                # llm is already loaded and cache state is assumed to be loaded/reset
+                logging.info(f"True KV cache thread using PERSISTENT instance (Mode: {self.cache_behavior_mode}). Cache: {kv_cache_path}")
                 self.cache_status_changed.emit("Warmed Up (Generating)") # Update chat tab status
             else:
                 # --- Load Model Temporarily ---
@@ -732,27 +755,29 @@ class ChatEngine(QObject):
                  # --- Load KV Cache Temporarily ---
                  if kv_cache_path and Path(kv_cache_path).exists():
                      logging.info(f"Loading KV cache state temporarily from: {kv_cache_path}")
-                     # --- Check Cache Compatibility Before Loading Temporarily ---
+                     # --- Strict Model Compatibility Check (Temporary Load) ---
                      cache_info = self.cache_manager.get_cache_info(kv_cache_path)
                      cache_model_id = cache_info.get('model_id') if cache_info else None
-                     # Use the current_model_id determined earlier for comparison
-                     # Also check against config_manager's idea of current model if loading temp
-                     temp_load_model_id = self.config_manager.get('CURRENT_MODEL_ID')
-                     if cache_model_id and temp_load_model_id and cache_model_id != temp_load_model_id:
-                         logging.warning(f"Cache '{Path(kv_cache_path).name}' was created with model '{cache_model_id}', but current model is '{temp_load_model_id}'. Skipping temporary load_state.")
-                         self.error_occurred.emit(f"Cache incompatible with current model ({temp_load_model_id}).") # Notify user
-                         # Proceed without loading state
-                     else:
-                         # Proceed with loading state if compatible or compatibility unknown
-                         try:
-                             with open(kv_cache_path, 'rb') as f_pickle:
-                                 state_data = pickle.load(f_pickle)
-                             llm.load_state(state_data)
-                             logging.info("Temporary KV cache state loaded successfully.")
-                             self.cache_status_changed.emit("Using TRUE KV Cache") # Update chat tab status
-                         except Exception as e_load:
-                             logging.error(f"Error loading temporary KV cache state: {e_load}. Proceeding without cache state.")
-                             # Don't raise, just proceed without the loaded state
+                     # current_model_id was already determined for the temporary model load
+                     if cache_model_id and current_model_id and cache_model_id != current_model_id:
+                         logging.error(f"Cache '{Path(kv_cache_path).name}' (model: {cache_model_id}) is incompatible with current model '{current_model_id}'. Skipping temporary load_state.")
+                         self.error_occurred.emit(f"Cache incompatible with current model ({current_model_id}). Cannot use.")
+                         # Do NOT proceed without loading state if incompatible
+                         raise RuntimeError(f"Incompatible cache detected during temporary load.")
+                     elif not cache_model_id:
+                         logging.warning(f"Cache '{Path(kv_cache_path).name}' has no model ID metadata. Assuming compatible for temporary load.")
+                     # --- End Check ---
+
+                     # Proceed with loading state if compatible or compatibility unknown/assumed
+                     try:
+                         with open(kv_cache_path, 'rb') as f_pickle:
+                             state_data = pickle.load(f_pickle)
+                         llm.load_state(state_data)
+                         logging.info("Temporary KV cache state loaded successfully.")
+                         self.cache_status_changed.emit("Using TRUE KV Cache") # Update chat tab status
+                     except Exception as e_load:
+                         logging.error(f"Error loading temporary KV cache state: {e_load}. Proceeding without cache state.")
+                         # Don't raise, just proceed without the loaded state
                  else:
                       logging.warning("KV cache path invalid or missing for temporary load. Proceeding without cache state.")
 
@@ -760,328 +785,311 @@ class ChatEngine(QObject):
             self.status_updated.emit("Generating response...")
             self.cache_status_changed.emit("Warmed Up (Generating)" if is_using_persistent_llm else "Using TRUE KV Cache (Generating)")
 
+            # ---> WARM-UP STEP: Evaluate BOS token after state load <---
+            # This is crucial to ensure the model's attention mechanism
+            # correctly incorporates the loaded KV cache state, especially
+            # when using modes like 'standard' or 'fresh_after' where the
+            # state might have been loaded earlier (during warm-up).
+            # Also beneficial after 'fresh_before' reload.
+            try:
+                bos_token = llm.token_bos()
+                if bos_token is not None: # Ensure BOS token exists
+                    logging.info(f"Evaluating BOS token ({bos_token}) to prime attention after state load/reload...")
+                    llm.eval([bos_token])
+                    logging.info("BOS token evaluated successfully.")
+                else:
+                    logging.warning("Model does not have a BOS token defined, skipping BOS evaluation.")
+            except Exception as e_bos:
+                # Log error but don't necessarily stop inference, as it might still work partially
+                logging.error(f"Error evaluating BOS token after state load: {e_bos}")
+                self.error_occurred.emit(f"Warning: Error priming model state with BOS token: {e_bos}")
+            # ---> END WARM-UP STEP <---
+
+
             # --- Use different prompts for recitation vs QA ---
+            # is_paragraph_recitation = False # Flag for post-processing - REMOVED
             if is_recitation_request:
-                # More explicit recitation prompt (as per plan)
+                # Always use generic full document recitation prompt now
                 instruction_prefix = "\n\nYou are a precise document recitation system. Your task is to accurately recite the content of the loaded document, starting from the VERY BEGINNING of the document. Do not skip any content. Start with the first sentence and continue in order.\n\n"
                 recitation_prompt = "Document recitation request: Output the document text in order starting from the beginning:\n\n"
+                logging.info("Using generic full document recitation prompt.")
                 full_input_text = instruction_prefix + recitation_prompt
-                logging.info("Using explicit document recitation prompt.")
             else:
-                # Original prompt for QA
-                instruction_prefix = "\n\nBased *only* on the loaded document context, answer the following question:\n"
+                # Refined QA prompt for True KV Cache, emphasizing structured context
+                instruction_prefix = "\n\nYou are an assistant answering questions based on a structured document (formatted using Markdown with headings, lists, tables, etc.) that has been loaded into your memory via a KV cache. Carefully consult this entire loaded context to answer the question accurately and comprehensively. Pay close attention to details like dates, names, and events mentioned throughout the text.\n\n"
                 question_prefix = "Question: "
-                suffix_text = "\n\nAnswer: " # Helps prompt the answer
+                suffix_text = "\n\nPlease provide a comprehensive answer based on all relevant information found in the loaded document context.\nAnswer: "
                 full_input_text = instruction_prefix + question_prefix + message + suffix_text
-                logging.info("Using standard QA prompt.")
+                logging.info("Using refined QA prompt for True KV Cache.")
 
             # --- Tokenize user input with structure ---
             input_tokens = llm.tokenize(full_input_text.encode('utf-8'))
             logging.info(f"Tokenized user input with structure ({len(input_tokens)} tokens)")
 
-            # --- Evaluate input tokens ONLY IF NOT a recitation request ---
-            # For recitation with true KV cache, the loaded state IS the document.
-            # Evaluating more tokens seems to confuse the model's starting point.
-            if not is_recitation_request:
-                logging.info("Evaluating input tokens for QA...")
-                llm.eval(input_tokens)
-                logging.info("Input tokens evaluated.")
-            else:
-                logging.info("Skipping input token evaluation for document recitation.")
+            # --- Evaluate input tokens (Unconditionally) ---
+            # Always evaluate the input tokens (containing the appropriate prompt)
+            # before starting generation, even for recitation after state load.
+            logging.info(f"Evaluating {len(input_tokens)} input tokens...")
+            llm.eval(input_tokens)
+            logging.info("Input tokens evaluated.")
 
-            # --- Generate response ---
+            # --- Generate response using low-level sampling for ALL cases (QA and Recitation) ---
+            
+            # Adjust settings based on request type
             if is_recitation_request:
-                 # --- Use create_chat_completion for Recitation (with temp=0.2) ---
-                 # Since KV cache is loaded and we skipped eval, the model state is ready.
-                 # We need a minimal prompt just to kick off generation.
-                 logging.info(f"Generating recitation using create_chat_completion (max_tokens={max_tokens}, temp={temperature})")
-                 recitation_messages = [
-                     # Minimal system prompt reinforcing the task
-                    {"role": "system", "content": "Recite the loaded document exactly."},
-                    # Minimal user message to trigger generation
-                    {"role": "user", "content": "Begin."} 
-                ]
-                 # Note: We are NOT evaluating these minimal messages. Generation starts from the loaded state.
-                
-                 # The critical issue is that create_chat_completion expects STRING stop sequences,
-                 # not token IDs. Using token IDs will cause 'int' has no attribute 'encode' error.
-                 # Use common string stop sequences instead
-                 stop_sequences = ["<end>", "</s>", "<|endoftext|>"]  # Common end sequences
-                 
-                 # If we know the model type, add model-specific stop sequences
-                 if "gemma" in current_model_id.lower():
-                     stop_sequences.append("<EOS>")
-                 
-                 logging.debug(f"Using string stop sequences for recitation: {stop_sequences}")
-
-                 # Modify temperature slightly for better recitation 
-                 recitation_temperature = 0.0  # Use a consistent value of 0
-                 logging.info(f"Setting temperature to {recitation_temperature} for recitation.")
-
-                 stream = llm.create_chat_completion(
-                     messages=recitation_messages, # Minimal prompt
-                     max_tokens=max_tokens,
-                     temperature=recitation_temperature, 
-                     stream=True,
-                     stop=stop_sequences  # Use string stop sequences, not token IDs
-                 )
-
-                 # Process stream for recitation
-                 response_text = ""
-                 for chunk in stream:
-                     try:
-                         delta = chunk["choices"][0].get("delta", {})
-                         text = delta.get("content")
-                         finish_reason = chunk["choices"][0].get("finish_reason")
-                         if text:
-                             self.response_chunk.emit(text)
-                             response_text += text
-                         if finish_reason and finish_reason != 'stop':
-                              logging.info(f"Recitation stream finished early. Reason: {finish_reason}")
-                              # Check if finish_reason indicates EOS based on stop list
-                              # llama-cpp-python might return 'stop' if it hits a token in the stop list.
-                              # If it's something else like 'length', we handle it later.
-                              if finish_reason == 'stop':
-                                  generated_eos = True # Assume EOS if reason is 'stop'
-                              break
-                         elif finish_reason == 'stop':
-                              generated_eos = True
-                              break # Exit loop if explicitly stopped
-                     except (KeyError, IndexError, TypeError) as e:
-                         logging.warning(f"Recitation: Could not extract text from stream chunk: {chunk}, Error: {e}")
-                
-                 # After loop, check if max tokens reached without EOS
-                 if not generated_eos and len(response_text.split()) > max_tokens * 0.8: # Heuristic check
-                      logging.warning(f"Recitation likely truncated at {max_tokens} tokens.")
-                      truncation_msg = f" [... document text continues beyond the {max_tokens} token limit ...]"
-                      response_text += truncation_msg
-                      self.response_chunk.emit(truncation_msg)
-
-                 logging.info(f"Generated recitation response. EOS generated: {generated_eos}")
-                 
-                 # Mark for state reset on next query after recitation
-                 if is_using_persistent_llm:
-                     # Only attempt state reset *on the next query* after recitation
-                     # Mark this in the engine state rather than trying to reset immediately
-                     self._post_recitation = True
-                     logging.info("Marking model for state refresh on next query")
-
+                # Use recitation-specific settings
+                sampling_temp = 0.0 # Force deterministic output for recitation
+                sampling_repeat_threshold = repeat_threshold # Use enhanced value calculated earlier
+                sampling_max_no_output = max_no_output # Use enhanced value calculated earlier
+                logging.info(f"Generating Recitation using low-level token sampling (max_tokens={max_tokens}, temp={sampling_temp})")
             else:
-                # --- Use low-level sampling for QA (as before) ---
-                # Note: The 'temperature' variable here now holds the fixed_low_temp passed from send_message
-                logging.info(f"Generating QA response using low-level token sampling (max_tokens={max_tokens}, temp={temperature})") 
-                eos_token = llm.token_eos()
-                logging.debug(f"EOS token ID: {eos_token} (type: {type(eos_token)})")
-                tokens_generated = []
-                # response_text = "" # Initialized earlier
+                 # Use QA settings
+                 sampling_temp = temperature # Use the temperature passed from the UI
+                 sampling_repeat_threshold = repeat_threshold # Use standard value calculated earlier
+                 sampling_max_no_output = max_no_output # Use standard value calculated earlier
+                 logging.info(f"Generating QA response using low-level token sampling (max_tokens={max_tokens}, temp={sampling_temp})")
 
-                # Track potential stopping conditions (initialize based on config)
-                generated_eos = False
-                consecutive_repeats = 0
-                # repeat_threshold set from model_config
-                no_output_tokens = 0  # Count tokens that don't produce visible output
-                # max_no_output set from model_config
-                last_response_length = 0
+            # --- Sampling Loop (Common for QA and Recitation) ---
+            eos_token = llm.token_eos()
+            logging.debug(f"EOS token ID: {eos_token} (type: {type(eos_token)})")
+            tokens_generated = []
+            # response_text = "" # Initialized earlier
+
+            # Track potential stopping conditions (initialize based on config)
+            generated_eos = False
+            consecutive_repeats = 0
+            # repeat_threshold set from model_config
+            no_output_tokens = 0  # Count tokens that don't produce visible output
+            # max_no_output set from model_config
+            last_response_length = 0
+            
+            # For better repetition detection
+            recent_output_chunks = []  # Store recent output chunks for pattern detection
+            max_stored_chunks = 10     # Maximum number of chunks to store
+            chunk_min_size = 20        # Minimum size of text to consider for chunk analysis
+
+            # Combine standard EOS with additional stop tokens from config
+            stop_token_ids = {int(eos_token)} | {int(t) for t in additional_stop_tokens} # Ensure all are ints
+            # --- REMOVED paragraph stop token logic ---
+
+            logging.debug(f"Effective stop token IDs: {stop_token_ids}")
+
+            # Use the max_tokens value passed into the function
+            # Get repeat penalty from config, default to 1.1
+            repeat_penalty_value = float(self.config_manager.get('LLAMACPP_REPEAT_PENALTY', 1.1))
+            logging.info(f"Using repeat_penalty: {repeat_penalty_value}")
+
+            for i in range(max_tokens):
+                # Apply the determined temperature and repeat_penalty for sampling
+                token_id = llm.sample(temp=sampling_temp, repeat_penalty=repeat_penalty_value) # Apply specific temp and penalty here
                 
-                # For better repetition detection
-                recent_output_chunks = []  # Store recent output chunks for pattern detection
-                max_stored_chunks = 10     # Maximum number of chunks to store
-                chunk_min_size = 20        # Minimum size of text to consider for chunk analysis
+                # Log sampled token ID periodically or near the end for debugging
+                if i >= max_tokens - 20: # Log last 20 tokens sampled
+                    logging.debug(f"Sampled token ID at step {i}: {token_id} (type: {type(token_id)})")
 
-                # Combine standard EOS with additional stop tokens
-                stop_token_ids = {int(eos_token)} | {int(t) for t in additional_stop_tokens} # Ensure all are ints
-                logging.debug(f"Effective stop token IDs: {stop_token_ids}")
+                # Enhanced EOS detection using model_config
+                is_eos = False
+                try:
+                    token_id_int = int(token_id) # Convert once for comparisons
 
-                # Use the max_tokens value passed into the function
-                for i in range(max_tokens):
-                    token_id = llm.sample() 
-                    
-                    # Log sampled token ID periodically or near the end for debugging
-                    if i >= max_tokens - 20: # Log last 20 tokens sampled
-                        logging.debug(f"Sampled token ID at step {i}: {token_id} (type: {type(token_id)})")
+                    # Primary check: Is the token in our combined stop set?
+                    if token_id_int in stop_token_ids:
+                        logging.debug(f"Stop token {token_id_int} encountered based on stop_token_ids set.")
+                        is_eos = True
 
-                    # Enhanced EOS detection using model_config
-                    is_eos = False
+                    # Apply model-specific methods if needed (e.g., 'gemma' might have unique logic)
+                    elif eos_detection_method == 'gemma':
+                        # Add any Gemma-specific checks here if necessary
+                        # For now, relying on additional_stop_tokens is likely sufficient
+                        pass
+                    elif eos_detection_method == 'strict':
+                        # Only check against the official EOS token
+                        is_eos = (token_id_int == int(eos_token))
+                    elif eos_detection_method == 'flexible':
+                        # Add more lenient checks if needed (e.g., string comparison)
+                        if str(token_id).strip() == str(eos_token).strip():
+                             is_eos = True
+                    # Default behavior already covered by stop_token_ids check
+
+                except ValueError:
+                    logging.warning(f"Could not convert sampled token ID '{token_id}' to int for EOS check.")
+                except Exception as e:
+                    logging.error(f"Unexpected error during EOS detection: {e}")
+
+                if is_eos:
+                    logging.info(f"Stop token encountered at step {i} (ID: {token_id}). Method: {eos_detection_method}.")
+                    generated_eos = True
+                    break  # Exit the loop immediately
+
+                # Add token to generated list
+                tokens_generated.append(token_id)
+
+                # --- Debug Logging ---
+                if self.debug_token_generation and i < 200:  # Limit to first 200 tokens to avoid log bloat
                     try:
-                        token_id_int = int(token_id) # Convert once for comparisons
+                        # Use a temporary list to avoid modifying the main list for detokenization
+                        token_text = llm.detokenize([token_id]).decode('utf-8', errors='replace')
+                        # Sanitize token text for logging (replace control characters)
+                        sanitized_text = ''.join(c if c.isprintable() else f'\\x{ord(c):02x}' for c in token_text)
+                        logging.debug(f"Token {i}: ID={token_id}, Text='{sanitized_text}', Hex={hex(token_id)}")
+                    except Exception as debug_e:
+                        logging.debug(f"Token {i}: ID={token_id}, (Error detokenizing: {debug_e})")
+                # --- End Debug Logging ---
 
-                        # Primary check: Is the token in our combined stop set?
-                        if token_id_int in stop_token_ids:
-                            logging.debug(f"Stop token {token_id_int} encountered based on stop_token_ids set.")
-                            is_eos = True
+                llm.eval([token_id])
 
-                        # Apply model-specific methods if needed (e.g., 'gemma' might have unique logic)
-                        elif eos_detection_method == 'gemma':
-                            # Add any Gemma-specific checks here if necessary
-                            # For now, relying on additional_stop_tokens is likely sufficient
-                            pass
-                        elif eos_detection_method == 'strict':
-                            # Only check against the official EOS token
-                            is_eos = (token_id_int == int(eos_token))
-                        elif eos_detection_method == 'flexible':
-                            # Add more lenient checks if needed (e.g., string comparison)
-                            if str(token_id).strip() == str(eos_token).strip():
-                                 is_eos = True
-                        # Default behavior already covered by stop_token_ids check
+                # --- Custom Repetition Logic Temporarily Disabled (2025-03-31) ---
+                # Relying solely on repeat_penalty from llama.cpp for now.
+                # Periodically check the output text to detect repetition or lack of progress
+                # # Check more frequently, e.g., every 8 tokens, or near the end
+                # check_interval = 8
+                # if (i + 1) % check_interval == 0 or i >= max_tokens - 20:
+                #     current_text = llm.detokenize(tokens_generated).decode('utf-8', errors='replace')
+                #     new_text = current_text[len(response_text):]
 
-                    except ValueError:
-                        logging.warning(f"Could not convert sampled token ID '{token_id}' to int for EOS check.")
-                    except Exception as e:
-                        logging.error(f"Unexpected error during EOS detection: {e}")
+                #     # Check for no new content (only whitespace or empty)
+                #     # Use the sampling_max_no_output determined earlier
+                #     if not new_text.strip():
+                #         no_output_tokens += check_interval # Approximate since we check periodically
+                #         if no_output_tokens >= sampling_max_no_output:
+                #             logging.info(f"No meaningful output for ~{no_output_tokens} tokens. Stopping early at step {i}.")
+                #             break
+                #     else:
+                #         no_output_tokens = 0  # Reset counter when we get new content
 
-                    if is_eos:
-                        logging.info(f"Stop token encountered at step {i} (ID: {token_id}). Method: {eos_detection_method}.")
-                        generated_eos = True
-                        break  # Exit the loop immediately
+                #     # Enhanced repetition detection - store recent chunks for better analysis
+                #     if current_text and len(current_text) > chunk_min_size:
+                #         # Get the new text since last check
+                #         if new_text and len(new_text) > 0:
+                #             # Add new chunk to our buffer
+                #             recent_output_chunks.append(new_text)
+                #             # Keep only most recent chunks
+                #             if len(recent_output_chunks) > max_stored_chunks:
+                #                 recent_output_chunks.pop(0)
+                                
+                #             # Check for repeating patterns in the recent chunks
+                #             # Use the sampling_repeat_threshold determined earlier
+                #             if stop_on_repetition and len(recent_output_chunks) >= 2:
+                #                 # Basic repetition check (same as before but using our chunks)
+                #                 if len(recent_output_chunks) >= 2 and recent_output_chunks[-1].strip() == recent_output_chunks[-2].strip() and recent_output_chunks[-1].strip():
+                #                     consecutive_repeats += 1
+                #                     logging.debug(f"Repetition detected ({consecutive_repeats}/{sampling_repeat_threshold}) at step {i}.")
+                #                     if consecutive_repeats >= sampling_repeat_threshold:
+                #                         logging.info(f"Repetitive output detected ({consecutive_repeats} times >= threshold {sampling_repeat_threshold}) at step {i}. Stopping early.")
+                #                         break
+                #                 else:
+                #                     # More advanced check: look for repeating sequences
+                #                     # This would detect "A B A B A B" type patterns
+                #                     repeating_pattern_found = False
+                #                     if len(recent_output_chunks) >= 4:  # Need at least 4 chunks to detect a pattern of length 2
+                #                         for pattern_len in range(1, min(3, len(recent_output_chunks) // 2)):  # Check patterns of length 1, 2
+                #                             last_chunks = recent_output_chunks[-pattern_len*2:]  # Get the last pattern_len*2 chunks
+                #                             first_part = ''.join(last_chunks[:pattern_len]).strip()
+                #                             second_part = ''.join(last_chunks[pattern_len:]).strip()
+                #                             if first_part and first_part == second_part:  # Non-empty pattern repeating
+                #                                 repeating_pattern_found = True
+                #                                 logging.debug(f"Pattern repetition of length {pattern_len} detected at step {i}.")
+                #                                 consecutive_repeats += 1
+                #                                 break
+                                                
+                #                     if not repeating_pattern_found:
+                #                         consecutive_repeats = 0  # Reset if no repetition found
+                #             else:
+                #                 consecutive_repeats = 0  # Reset if repetition check disabled
+                #         else:
+                #             consecutive_repeats = 0  # Reset if no new text
 
-                    # Add token to generated list
-                    tokens_generated.append(token_id)
+                #     # Check for repeated content (identical chunks) - Use model_config setting
+                #     # Use the sampling_repeat_threshold determined earlier
+                #     if stop_on_repetition and current_text and len(current_text) > 20:
+                #         # Check for repetitions by comparing the last two equal-length chunks
+                #         # Make chunk size dynamic but reasonable
+                #         check_len = min(max(20, len(current_text) // 4), 100) # Check 25% up to 100 chars
+                #         if len(current_text) >= 2 * check_len: # Ensure enough text for comparison
+                #             last_chunk = current_text[-check_len:]
+                #             previous_chunk = current_text[-2*check_len:-check_len]
+                #             if last_chunk == previous_chunk and last_chunk.strip(): # Avoid stopping on repeated whitespace
+                #                 consecutive_repeats += 1
+                #                 logging.debug(f"Repetition detected ({consecutive_repeats}/{sampling_repeat_threshold}) at step {i}. Chunks: '{previous_chunk}' == '{last_chunk}'")
+                #                 if consecutive_repeats >= sampling_repeat_threshold:
+                #                     logging.info(f"Repetitive output detected ({consecutive_repeats} times >= threshold {sampling_repeat_threshold}) at step {i}. Stopping early.")
+                #                     break
+                #             else:
+                #                 # Only reset if not already tracked by our enhanced detection
+                #                 if not recent_output_chunks or len(recent_output_chunks) < 2:
+                #                     consecutive_repeats = 0 # Reset if chunks differ
+                #     elif not stop_on_repetition:
+                #          consecutive_repeats = 0 # Ensure counter is reset if check is disabled
 
-                    # --- Debug Logging ---
-                    if self.debug_token_generation and i < 200:  # Limit to first 200 tokens to avoid log bloat
-                        try:
-                            # Use a temporary list to avoid modifying the main list for detokenization
-                            token_text = llm.detokenize([token_id]).decode('utf-8', errors='replace')
-                            # Sanitize token text for logging (replace control characters)
-                            sanitized_text = ''.join(c if c.isprintable() else f'\\x{ord(c):02x}' for c in token_text)
-                            logging.debug(f"Token {i}: ID={token_id}, Text='{sanitized_text}', Hex={hex(token_id)}")
-                        except Exception as debug_e:
-                            logging.debug(f"Token {i}: ID={token_id}, (Error detokenizing: {debug_e})")
-                    # --- End Debug Logging ---
+                    # Emit chunk and update response text - Moved outside the disabled block
+                    # if new_text:
+                    #     self.response_chunk.emit(new_text)
+                    #     response_text = current_text
 
-                    llm.eval([token_id])
+                    # QCoreApplication.processEvents() # Moved outside the disabled block
 
-                    # Periodically check the output text to detect repetition or lack of progress
-                    # Check more frequently, e.g., every 8 tokens, or near the end
-                    check_interval = 8
-                    if (i + 1) % check_interval == 0 or i >= max_tokens - 20:
-                        current_text = llm.detokenize(tokens_generated).decode('utf-8', errors='replace')
-                        new_text = current_text[len(response_text):]
+                # Additional early stopping criteria: Token repetition loop (use config)
+                # Check if stop_on_repetition is enabled, as this covers a similar case
+                # --- Restored Token Loop Check (2025-03-31) ---
+                # if stop_on_repetition and i > 100 and len(tokens_generated) >= 5:
+                #     last_5_tokens = tokens_generated[-5:]
+                #     # Check if all last 5 tokens are identical AND not the EOS/stop tokens
+                #     # (Avoid stopping if the model correctly outputs multiple EOS tokens)
+                #     try: # Add try-except for int conversion
+                #         first_token_int = int(last_5_tokens[0]) # Convert first token once
+                #         if first_token_int not in stop_token_ids and all(int(t) == first_token_int for t in last_5_tokens):
+                #             logging.info(f"Detected token repetition loop (token ID: {first_token_int}) at step {i}. Stopping early.")
+                #             break
+                #     except ValueError:
+                #          logging.warning(f"Could not convert token ID {last_5_tokens[0]} to int for loop check.")
+                # --- End Restored Check ---
+                # --- End Custom Repetition Logic Temporarily Disabled ---
 
-                        # Check for no new content (only whitespace or empty)
-                        if not new_text.strip():
-                            no_output_tokens += check_interval # Approximate since we check periodically
-                            if no_output_tokens >= max_no_output:
-                                logging.info(f"No meaningful output for ~{no_output_tokens} tokens. Stopping early at step {i}.")
-                                break
-                        else:
-                            no_output_tokens = 0  # Reset counter when we get new content
-
-                        # Enhanced repetition detection - store recent chunks for better analysis
-                        if current_text and len(current_text) > chunk_min_size:
-                            # Get the new text since last check
-                            if new_text and len(new_text) > 0:
-                                # Add new chunk to our buffer
-                                recent_output_chunks.append(new_text)
-                                # Keep only most recent chunks
-                                if len(recent_output_chunks) > max_stored_chunks:
-                                    recent_output_chunks.pop(0)
-                                    
-                                # Check for repeating patterns in the recent chunks
-                                if stop_on_repetition and len(recent_output_chunks) >= 2:
-                                    # Basic repetition check (same as before but using our chunks)
-                                    if len(recent_output_chunks) >= 2 and recent_output_chunks[-1].strip() == recent_output_chunks[-2].strip() and recent_output_chunks[-1].strip():
-                                        consecutive_repeats += 1
-                                        logging.debug(f"Repetition detected ({consecutive_repeats}/{repeat_threshold}) at step {i}.")
-                                        if consecutive_repeats >= repeat_threshold:
-                                            logging.info(f"Repetitive output detected ({consecutive_repeats} times >= threshold {repeat_threshold}) at step {i}. Stopping early.")
-                                            break
-                                    else:
-                                        # More advanced check: look for repeating sequences
-                                        # This would detect "A B A B A B" type patterns
-                                        repeating_pattern_found = False
-                                        if len(recent_output_chunks) >= 4:  # Need at least 4 chunks to detect a pattern of length 2
-                                            for pattern_len in range(1, min(3, len(recent_output_chunks) // 2)):  # Check patterns of length 1, 2
-                                                last_chunks = recent_output_chunks[-pattern_len*2:]  # Get the last pattern_len*2 chunks
-                                                first_part = ''.join(last_chunks[:pattern_len]).strip()
-                                                second_part = ''.join(last_chunks[pattern_len:]).strip()
-                                                if first_part and first_part == second_part:  # Non-empty pattern repeating
-                                                    repeating_pattern_found = True
-                                                    logging.debug(f"Pattern repetition of length {pattern_len} detected at step {i}.")
-                                                    consecutive_repeats += 1
-                                                    break
-                                                    
-                                        if not repeating_pattern_found:
-                                            consecutive_repeats = 0  # Reset if no repetition found
-                                else:
-                                    consecutive_repeats = 0  # Reset if repetition check disabled
-                            else:
-                                consecutive_repeats = 0  # Reset if no new text
-
-                        # Check for repeated content (identical chunks) - Use model_config setting
-                        if stop_on_repetition and current_text and len(current_text) > 20:
-                            # Check for repetitions by comparing the last two equal-length chunks
-                            # Make chunk size dynamic but reasonable
-                            check_len = min(max(20, len(current_text) // 4), 100) # Check 25% up to 100 chars
-                            if len(current_text) >= 2 * check_len: # Ensure enough text for comparison
-                                last_chunk = current_text[-check_len:]
-                                previous_chunk = current_text[-2*check_len:-check_len]
-                                if last_chunk == previous_chunk and last_chunk.strip(): # Avoid stopping on repeated whitespace
-                                    consecutive_repeats += 1
-                                    logging.debug(f"Repetition detected ({consecutive_repeats}/{repeat_threshold}) at step {i}. Chunks: '{previous_chunk}' == '{last_chunk}'")
-                                    if consecutive_repeats >= repeat_threshold:
-                                        logging.info(f"Repetitive output detected ({consecutive_repeats} times >= threshold {repeat_threshold}) at step {i}. Stopping early.")
-                                        break
-                                else:
-                                    # Only reset if not already tracked by our enhanced detection
-                                    if not recent_output_chunks or len(recent_output_chunks) < 2:
-                                        consecutive_repeats = 0 # Reset if chunks differ
-                        elif not stop_on_repetition:
-                             consecutive_repeats = 0 # Ensure counter is reset if check is disabled
-
-                        # Emit chunk and update response text
-                        if new_text:
-                            self.response_chunk.emit(new_text)
-                            response_text = current_text
-
-                        QCoreApplication.processEvents()
-
-                    # Additional early stopping criteria: Token repetition loop (use config)
-                    # Check if stop_on_repetition is enabled, as this covers a similar case
-                    if stop_on_repetition and i > 100 and len(tokens_generated) >= 5:
-                        last_5_tokens = tokens_generated[-5:]
-                        # Check if all last 5 tokens are identical AND not the EOS/stop tokens
-                        # (Avoid stopping if the model correctly outputs multiple EOS tokens)
-                        try: # Add try-except for int conversion
-                            first_token_int = int(last_5_tokens[0]) # Convert first token once
-                            if first_token_int not in stop_token_ids and all(int(t) == first_token_int for t in last_5_tokens):
-                                logging.info(f"Detected token repetition loop (token ID: {first_token_int}) at step {i}. Stopping early.")
-                                break
-                        except ValueError:
-                             logging.warning(f"Could not convert token ID {last_5_tokens[0]} to int for loop check.")
+                # Emit chunk and update response text (Needs to happen regardless of checks)
+                # Check periodically to avoid doing it every single token
+                check_interval = 8 # Or some other reasonable interval
+                if (i + 1) % check_interval == 0 or i >= max_tokens - 20:
+                    current_text = llm.detokenize(tokens_generated).decode('utf-8', errors='replace')
+                    new_text = current_text[len(response_text):]
+                    if new_text:
+                        self.response_chunk.emit(new_text)
+                        response_text = current_text
+                    QCoreApplication.processEvents()
 
 
-                # Ensure final text is emitted (if loop finished or broke early)
-                final_text = llm.detokenize(tokens_generated).decode('utf-8', errors='replace')
-                if len(final_text) > len(response_text):
-                     self.response_chunk.emit(final_text[len(response_text):])
-                response_text = final_text
+            # Ensure final text is emitted (if loop finished or broke early)
+            final_text = llm.detokenize(tokens_generated).decode('utf-8', errors='replace')
+            if len(final_text) > len(response_text):
+                 self.response_chunk.emit(final_text[len(response_text):])
+            response_text = final_text
 
-                # Add special endings for different conditions (Only for QA path now)
-                if not generated_eos and len(tokens_generated) >= max_tokens:
-                    # if is_recitation_request: # This part is now handled above
-                    #     truncation_msg = f" [... document text continues beyond the {max_tokens} token limit ...]"
-                    # else:
-                    truncation_msg = f" [... response truncated at {max_tokens} tokens]"
-                    logging.warning(f"Response truncated at {max_tokens} tokens.")
-                    response_text += truncation_msg
-                    self.response_chunk.emit(truncation_msg) # Emit the truncation message as a final chunk
-                elif not generated_eos and stop_on_repetition and consecutive_repeats >= repeat_threshold:
-                     # If we stopped early due to repetition
-                     logging.info(f"Response generation stopped early due to repetition detection.")
-                     truncation_msg = " [... response stopped due to repetitive content ...]"
-                     response_text += truncation_msg
-                     self.response_chunk.emit(truncation_msg)
-                elif not generated_eos and no_output_tokens >= max_no_output:
-                     # If we stopped early due to no output tokens
-                     logging.info(f"Response generation stopped early due to no meaningful output.")
-                     # Only add this for QA, not for document recitation
-                     # if not is_recitation_request: # This part is now handled above
-                     truncation_msg = " [... response stopped, no further content generated ...]"
-                     response_text += truncation_msg
-                     self.response_chunk.emit(truncation_msg)
+            # Add special endings for different conditions
+            if not generated_eos and len(tokens_generated) >= max_tokens:
+                truncation_msg = f" [... response truncated at {max_tokens} tokens]"
+                if is_recitation_request:
+                    truncation_msg = f" [... document text continues beyond the {max_tokens} token limit ...]"
+                logging.warning(f"Response truncated at {max_tokens} tokens.")
+                response_text += truncation_msg
+                self.response_chunk.emit(truncation_msg) # Emit the truncation message as a final chunk
+            elif not generated_eos and stop_on_repetition and consecutive_repeats >= sampling_repeat_threshold:
+                 # If we stopped early due to repetition
+                 logging.info(f"Response generation stopped early due to repetition detection.")
+                 truncation_msg = " [... response stopped due to repetitive content ...]"
+                 response_text += truncation_msg
+                 self.response_chunk.emit(truncation_msg)
+            elif not generated_eos and no_output_tokens >= sampling_max_no_output:
+                 # If we stopped early due to no output tokens
+                 logging.info(f"Response generation stopped early due to no meaningful output.")
+                 truncation_msg = " [... response stopped, no further content generated ...]"
+                 response_text += truncation_msg
+                 self.response_chunk.emit(truncation_msg)
 
-                logging.info(f"Generated QA response with {len(tokens_generated)} tokens. EOS generated: {generated_eos}")
+            log_msg_type = "Recitation" if is_recitation_request else "QA response"
+            logging.info(f"Generated {log_msg_type} with {len(tokens_generated)} tokens. EOS generated: {generated_eos}")
+
+            # --- REMOVED Post-processing for single paragraph recitation ---
+
+            # --- REMOVED Post-Recitation Flag Setting ---
 
             # --- Finalize (Common for both paths now) ---
             if response_text.strip():
@@ -1108,8 +1116,29 @@ class ChatEngine(QObject):
             # self.response_complete.emit("", False) # Moved to finally block
             self.cache_status_changed.emit("Error")
         finally:
+            # --- Handle Cache Reload Logic (After Query) ---
+            if acquired_lock and self.cache_behavior_mode == "fresh_after":
+                logging.info(f"Cache Mode '{self.cache_behavior_mode}': Reloading KV cache state after query completion/error.")
+                self.cache_status_changed.emit("Cache Mode: Reloading After...")
+                try:
+                    # Re-verify conditions inside lock, just in case
+                    if self.persistent_llm and self.warmed_cache_path and Path(self.warmed_cache_path).exists():
+                        with open(self.warmed_cache_path, 'rb') as f_pickle:
+                            state_data = pickle.load(f_pickle)
+                        self.persistent_llm.load_state(state_data)
+                        logging.info(f"Cache Mode '{self.cache_behavior_mode}': State reloaded successfully after query.")
+                        self.cache_status_changed.emit("Cache Mode: Reload OK (Post)") # Indicate post-query reload
+                    else:
+                        logging.warning(f"Cache Mode '{self.cache_behavior_mode}': Conditions for post-query reload not met.")
+                        self.cache_status_changed.emit("Cache Mode: Reload Failed (Post)")
+                except Exception as e_reload_after:
+                    # Log error but don't raise, as main operation might have succeeded
+                    logging.error(f"Cache Mode '{self.cache_behavior_mode}': Failed to reload state after query: {e_reload_after}")
+                    self.error_occurred.emit(f"Cache Reload Failed After Query ({self.cache_behavior_mode}): {e_reload_after}")
+                    self.cache_status_changed.emit("Cache Mode: Reload Failed (Post)")
+
             # --- Release lock ONLY if it was acquired ---
-            if acquired_lock:
+            if acquired_lock: # Ensure this aligns with the 'if acquired_lock and ...' block above it
                 self._lock.release()
                 logging.debug("Lock released for persistent LLM in true KV thread.")
             # Clean up temporary llm instance if one was created
@@ -1137,9 +1166,9 @@ class ChatEngine(QObject):
     # --- Fallback inference method ---
     # Modified to accept optional pre-loaded llm instance and recitation flags
     def _inference_thread_fallback(self, message: str, model_path: str, model_id: str, context_window: int,
-                        kv_cache_path: Optional[str], max_tokens: int, temperature: float, 
-                        llm: Optional[Llama] = None, is_recitation_request: bool = False, 
-                        modified_message: str = None):
+                        kv_cache_path: Optional[str], max_tokens: int, temperature: float,
+                        llm: Optional[Llama] = None, is_recitation_request: bool = False,
+                        modified_message: str = None): # Removed was_post_recitation_refresh flag
         """
         Fallback inference method using manual context prepending or no context.
         Can optionally receive a pre-loaded Llama instance (less common now).
@@ -1197,9 +1226,11 @@ class ChatEngine(QObject):
             
             # Use different system prompts for recitation vs QA
             if is_recitation_request:
+                # Recitation prompt remains the same
                 system_prompt_content = "You are a precise document recitation system. Your task is to recite the exact content of the provided text, starting from the beginning. Don't add anything, don't modify anything, just output the exact text."
             else:
-                system_prompt_content = "You are a helpful assistant." # Default system prompt
+                # Default QA prompt if NO context snippet is available
+                system_prompt_content = "\n\nYou are an assistant tasked with answering questions based on general knowledge, as no specific document context is available.\n\n"
 
             if kv_cache_path: # Use kv_cache_path to find original doc for prepending
                 logging.info("Fallback: Attempting to prepend original document context.")
@@ -1232,18 +1263,25 @@ class ChatEngine(QObject):
                             system_prompt_content = (
                                 f"Use the following text snippet to answer the user's question:\n"
                                 f"--- TEXT SNIPPET START ---\n{doc_context_text}...\n--- TEXT SNIPPET END ---\n\n"
-                                f"Answer based *only* on the text snippet provided."
+                                # Refined QA prompt when using a fallback snippet
+                                f"\n\nYou are an assistant answering questions based *only* on the following text snippet. Read the snippet carefully and answer comprehensively based *only* on the information within it.\n\n"
+                                f"--- TEXT SNIPPET START ---\n{doc_context_text}...\n--- TEXT SNIPPET END ---\n\n"
+                                # The user's question will be added later in the chat history
                             )
-                        logging.info("Fallback: Using system prompt with prepended context.")
-                    else: logging.warning("Fallback: Failed to read context, using default system prompt.")
+                        logging.info("Fallback: Using refined QA prompt with prepended context snippet.")
+                    else:
+                        logging.warning("Fallback: Failed to read context snippet, using default no-context QA prompt.")
+                        # system_prompt_content remains the default no-context prompt defined earlier
                 except Exception as e_ctx:
-                    logging.error(f"Fallback: Error retrieving context: {e_ctx}")
-                    logging.warning("Fallback: Using default system prompt.")
+                    logging.error(f"Fallback: Error retrieving context snippet: {e_ctx}")
+                    logging.warning("Fallback: Using default no-context QA prompt.")
+                    # system_prompt_content remains the default no-context prompt defined earlier
             else:
-                 logging.info("Fallback: No cache path provided, using default system prompt without prepending.")
+                 logging.info("Fallback: No cache path provided, using default no-context QA prompt.")
+                 # system_prompt_content remains the default no-context prompt defined earlier
 
 
-            # Add system prompt
+            # Add system prompt (which now varies based on context availability)
             chat_messages.append({"role": "system", "content": system_prompt_content})
             
             # For recitation, use a simpler approach with fewer history messages
@@ -1271,13 +1309,16 @@ class ChatEngine(QObject):
 
             # --- Generate Response (Streaming using create_chat_completion) ---
             self.status_updated.emit("Fallback: Generating response...")
-            logging.info(f"Fallback: Generating response using create_chat_completion (max_tokens={max_tokens})...") # Log max_tokens
+            # Get repeat penalty from config, default to 1.1
+            repeat_penalty_value = float(self.config_manager.get('LLAMACPP_REPEAT_PENALTY', 1.1))
+            logging.info(f"Fallback: Generating response using create_chat_completion (max_tokens={max_tokens}, temp={temperature}, repeat_penalty={repeat_penalty_value})...") # Log max_tokens and penalty
             stream = llm.create_chat_completion(
                 messages=chat_messages,
                 max_tokens=max_tokens, # Use passed max_tokens
-                temperature=temperature,
+                temperature=temperature, # Use temperature passed from UI
+                repeat_penalty=repeat_penalty_value, # Apply repeat penalty
                 stream=True
-            )
+             )
 
             # complete_response = "" # Moved initialization up
             for chunk in stream:
@@ -1302,10 +1343,10 @@ class ChatEngine(QObject):
                 self.error_occurred.emit("Model generated an empty response.")
                 # self.response_complete.emit("", False) # Moved to finally
                 
-            # Set post-recitation flag if needed
+            # Set post-recitation flag if needed (original logic)
             if is_recitation_request and is_using_persistent_llm:
-                self._post_recitation = True
-                logging.info("Marking model for state refresh on next query (fallback mode)")
+                # self._post_recitation = True # Removed - handled by cache mode
+                logging.info("Marking model for state refresh on next query (fallback mode)") # Kept log for now
 
         except Exception as e:
             error_message = f"Error during fallback inference: {str(e)}"

@@ -33,6 +33,7 @@ class DocumentProcessor(QObject):
     processing_progress = pyqtSignal(str, int)  # document_id, progress percentage
     processing_complete = pyqtSignal(str, bool, str)  # document_id, success, message
     token_estimation_complete = pyqtSignal(str, int, bool)  # document_id, tokens, fits_context
+    cache_ready_for_use = pyqtSignal(str) # New signal: cache_path
 
     def __init__(self, config_manager, llama_manager, model_manager, cache_manager):
         """Initialize document processor"""
@@ -116,7 +117,8 @@ class DocumentProcessor(QObject):
             self.token_estimation_complete.emit(document_id, 0, False)
             return 0
 
-    def process_document(self, document_path: Union[str, Path], set_as_master: bool = False) -> bool:
+    # Added use_now parameter, removed set_as_master
+    def process_document(self, document_path: Union[str, Path], use_now: bool = False) -> bool:
         """Process a document into a KV cache"""
         document_path = Path(document_path)
         if not document_path.exists():
@@ -146,7 +148,7 @@ class DocumentProcessor(QObject):
             # Start processing in a separate thread
             threading.Thread(
                 target=self._process_document_thread,
-                args=(document_id, str(document_path), model_path, kv_cache_path, context_window, set_as_master),
+                args=(document_id, str(document_path), model_path, kv_cache_path, context_window, use_now), # Pass use_now
                 daemon=True,
             ).start()
 
@@ -248,8 +250,9 @@ class DocumentProcessor(QObject):
             logging.error(f"KV cache verification failed: {str(e)}")
             return False
 
+    # Added use_now parameter, removed set_as_master
     def _process_document_thread(self, document_id: str, document_path: str, model_path: str,
-                               kv_cache_path: Path, context_window: int, set_as_master: bool):
+                               kv_cache_path: Path, context_window: int, use_now: bool):
         """Thread function for document processing using llama-cpp-python"""
         llm = None # Initialize llm to None for finally block
         try:
@@ -378,27 +381,59 @@ class DocumentProcessor(QObject):
             logging.info(f"Evaluation complete in {eval_time:.2f} seconds ({tokens_per_second:.2f} tokens/sec).")
             self.processing_progress.emit(document_id, 90) # Progress update
 
-            # --- Save KV Cache State (Using improved helper function) ---
-            save_successful = self._save_kv_cache_state(llm, kv_cache_path)
+            # --- Atomic Cache Save ---
+            # 1. Define temporary path
+            temp_cache_path = kv_cache_path.with_suffix('.tmp_cache')
+            logging.info(f"Saving temporary cache state to: {temp_cache_path}")
+
+            # 2. Save to temporary path
+            save_successful = self._save_kv_cache_state(llm, temp_cache_path)
 
             if not save_successful:
-                # Create placeholder to prevent subsequent errors
-                with open(kv_cache_path, 'w') as f:
-                    f.write("KV CACHE SAVE FAILED PLACEHOLDER")
-                error_msg = f"Failed to save KV cache state to {kv_cache_path} using known methods."
+                # Clean up temporary file if save failed
+                if temp_cache_path.exists():
+                    try:
+                        temp_cache_path.unlink()
+                    except OSError as e_unlink:
+                        logging.warning(f"Could not delete failed temporary cache file {temp_cache_path}: {e_unlink}")
+                error_msg = f"Failed to save temporary KV cache state to {temp_cache_path}."
                 logging.error(error_msg)
                 raise RuntimeError(error_msg)
 
-            # --- Verify KV Cache Integrity ---
+            # 3. Verify temporary cache integrity
             self.processing_progress.emit(document_id, 95) # Progress update
-            verify_successful = self._verify_kv_cache_integrity(kv_cache_path)
-            
-            if not verify_successful:
-                logging.error(f"KV cache verification failed after save.")
-                raise RuntimeError(f"Created KV cache file failed verification check. The cache may be corrupted.")
+            verify_successful = self._verify_kv_cache_integrity(temp_cache_path)
 
-            # --- Continue if save was successful ---
-            logging.info("KV cache state saved and verified successfully.") # Log success after helper call
+            if not verify_successful:
+                # Clean up failed temporary file
+                if temp_cache_path.exists():
+                    try:
+                        temp_cache_path.unlink()
+                    except OSError as e_unlink:
+                        logging.warning(f"Could not delete failed temporary cache file {temp_cache_path}: {e_unlink}")
+                logging.error(f"Temporary KV cache verification failed.")
+                raise RuntimeError(f"Created temporary KV cache file failed verification check.")
+
+            # 4. Rename temporary file to final path (Atomic operation on most systems)
+            try:
+                # Ensure final destination doesn't exist (shouldn't, but safety check)
+                if kv_cache_path.exists():
+                    kv_cache_path.unlink()
+                temp_cache_path.rename(kv_cache_path)
+                logging.info(f"Successfully renamed temporary cache to final path: {kv_cache_path}")
+            except OSError as e_rename:
+                # Clean up temporary file if rename failed
+                if temp_cache_path.exists():
+                    try:
+                        temp_cache_path.unlink()
+                    except OSError as e_unlink:
+                        logging.warning(f"Could not delete temporary cache file after rename error {temp_cache_path}: {e_unlink}")
+                error_msg = f"Failed to rename temporary cache to final path: {e_rename}"
+                logging.error(error_msg)
+                raise RuntimeError(error_msg)
+
+            # --- Cache is now saved and verified ---
+            logging.info("KV cache state saved and verified successfully.")
             self.processing_progress.emit(document_id, 97) # Progress update
 
             # --- Update Document Registry ---
@@ -417,15 +452,7 @@ class DocumentProcessor(QObject):
             self._document_registry[document_id] = doc_info
             self._save_document_registry()
 
-            # --- Set as Master if Requested ---
-            if set_as_master:
-                if self.set_as_master(document_id):
-                     doc_info['is_master'] = True # Update local dict if successful
-                     self._document_registry[document_id] = doc_info # Resave registry
-                     self._save_document_registry()
-                else:
-                     logging.warning(f"Failed to set {document_id} as master cache.")
-                     # Proceed anyway, but log the warning
+            # --- REMOVED Set as Master Logic ---
 
             # --- Register with Cache Manager ---
             # Pass context_size to register_cache
@@ -444,6 +471,11 @@ class DocumentProcessor(QObject):
             self.processing_complete.emit(
                 document_id, True, f"KV cache created successfully at {kv_cache_path}"
             )
+
+            # --- Emit signal to use cache now if requested ---
+            if use_now:
+                logging.info(f"Emitting signal to use cache now: {kv_cache_path}")
+                self.cache_ready_for_use.emit(str(kv_cache_path))
 
         except FileNotFoundError as e: # Specific exception for file not found
              error_message = f"File not found error processing document {document_id}: {str(e)}"

@@ -60,6 +60,9 @@ class MainWindow(QMainWindow):
         # Show welcome dialog if needed (after UI setup and settings restore)
         self.maybe_show_welcome_dialog()
 
+        # Set initial tab to Models (index 0)
+        self.tabs.setCurrentIndex(0)
+
     def setup_ui(self):
         """Set up the user interface"""
         # Set window properties
@@ -139,6 +142,8 @@ class MainWindow(QMainWindow):
         # Document tab signals
         self.document_tab.kv_cache_created.connect(self.update_status)
         self.document_tab.kv_cache_created.connect(self.cache_tab.refresh_caches)
+        # Connect the new signal from the processor (via the tab)
+        self.document_processor.cache_ready_for_use.connect(self.on_cache_ready_for_use)
 
         # Cache tab signals
         self.cache_tab.cache_selected.connect(self.chat_tab.on_cache_selected)
@@ -253,9 +258,12 @@ class MainWindow(QMainWindow):
         if state:
             self.restoreState(state)
 
-        # Restore selected tab
+        # Restore selected tab - Keep this for subsequent launches
+        # The initial tab is set after setup_ui now
         tab_index = settings.value("selectedTab", 0, type=int)
-        self.tabs.setCurrentIndex(tab_index)
+        # Only restore if it's not the very first launch (where geometry might be None)
+        if geometry:
+            self.tabs.setCurrentIndex(tab_index)
 
     def save_settings(self):
         """Save window state and settings"""
@@ -365,3 +373,14 @@ class MainWindow(QMainWindow):
             # Use QTimer.singleShot to ensure activation happens after event loop processing
             QTimer.singleShot(0, self.welcome_dialog_instance.raise_)
             QTimer.singleShot(0, self.welcome_dialog_instance.activateWindow)
+
+    @pyqtSlot(str)
+    def on_cache_ready_for_use(self, cache_path: str):
+        """Slot to handle when a cache is created and 'use now' was checked."""
+        logging.info(f"Main window received signal to use cache now: {cache_path}")
+        # Tell the chat tab to select this cache
+        self.chat_tab.on_cache_selected(cache_path)
+        # Switch focus to the chat tab (index 2)
+        self.tabs.setCurrentIndex(2)
+        # Optionally, trigger warm-up automatically? For now, just select it.
+        # self.chat_tab.on_warmup_button_clicked()

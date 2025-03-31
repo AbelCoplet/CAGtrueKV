@@ -151,10 +151,11 @@ class DocumentTab(QWidget):
         # Processing options
         options_frame = QFrame()
         options_layout = QHBoxLayout(options_frame)
-        
-        self.set_master_checkbox = QCheckBox("Set as Master KV Cache")
-        options_layout.addWidget(self.set_master_checkbox)
-        
+
+        self.use_cache_now_checkbox = QCheckBox("Use this cache for chat now")
+        self.use_cache_now_checkbox.setToolTip("If checked, this cache will be automatically selected in the Chat tab upon successful creation.")
+        options_layout.addWidget(self.use_cache_now_checkbox)
+
         options_layout.addStretch()
         
         self.estimate_button = QPushButton("Estimate Tokens")
@@ -551,11 +552,13 @@ class DocumentTab(QWidget):
         self.remove_doc_button.setEnabled(False) # Disable remove during processing
 
         # Start processing
+        use_now = self.use_cache_now_checkbox.isChecked()
         self.document_processor.process_document(
             self.current_document_path,
-            set_as_master=self.set_master_checkbox.isChecked()
+            use_now=use_now # Pass the new flag (will require doc processor update)
+            # set_as_master=self.set_master_checkbox.isChecked() # Removed old flag
         )
-    
+
     @pyqtSlot(str, int, bool)
     def on_token_estimation_complete(self, document_id: str, token_count: int, fits_context: bool):
         """Handle token estimation completion"""

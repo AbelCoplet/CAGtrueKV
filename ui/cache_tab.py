@@ -61,12 +61,16 @@ Status Colors (in Chat Tab): Green = TRUE KV Cache, Orange = Fallback/Master, Gr
 
         # Cache table
         self.cache_table = QTableWidget()
-        self.cache_table.setColumnCount(3)
+        self.cache_table.setColumnCount(5) # Increased column count
         self.cache_table.setHorizontalHeaderLabels([
-            "Cache Name", "Size", "Document"
+            "Cache Name", "Size", "Document", "Model Used", "Created" # Added new columns
         ])
-        # Stretch last column to fill space
-        self.cache_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        # Adjust column resizing
+        self.cache_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Interactive) # Cache Name
+        self.cache_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents) # Size
+        self.cache_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch) # Document
+        self.cache_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Interactive) # Model Used
+        self.cache_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents) # Created
         layout.addWidget(self.cache_table)
 
         # Button layout
@@ -167,7 +171,24 @@ Status Colors (in Chat Tab): Green = TRUE KV Cache, Orange = Fallback/Master, Gr
                 # Word wrap is handled by the view, not the item itself for QTableWidget
                 self.cache_table.setItem(i, 2, item_doc)
 
-            self.cache_table.resizeColumnsToContents()
+                # Model ID
+                model_id = cache.get('model_id', 'Unknown')
+                item_model = QTableWidgetItem(model_id)
+                item_model.setFlags(item_model.flags() & ~Qt.ItemIsEditable)
+                self.cache_table.setItem(i, 3, item_model)
+
+                # Created Timestamp
+                created_ts = cache.get('last_modified', 0) # Use last_modified as proxy for created for now
+                created_str = time.strftime('%Y-%m-%d %H:%M', time.localtime(created_ts)) if created_ts else "Unknown"
+                item_created = QTableWidgetItem(created_str)
+                item_created.setTextAlignment(Qt.AlignCenter | Qt.AlignVCenter)
+                item_created.setFlags(item_created.flags() & ~Qt.ItemIsEditable)
+                self.cache_table.setItem(i, 4, item_created)
+
+
+            # self.cache_table.resizeColumnsToContents() # Resize specific columns instead
+            self.cache_table.resizeColumnToContents(1) # Size
+            self.cache_table.resizeColumnToContents(4) # Created
             self.cache_table.setWordWrap(True) # Enable word wrap for the table view
             # Update status
             self.status_label.setText(f"{len(caches)} caches listed.")

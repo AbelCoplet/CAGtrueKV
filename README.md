@@ -48,11 +48,21 @@ LlamaCagUI/
 │   ├── logging_utils.py     # Logging setup and utilities
 │   └── token_counter.py     # Utilities for estimating tokens in documents
 │
-└── fixes/                   # Folder for backup and fix scripts (to be created)
-    ├── [All backup files]
-    └── [All diagnostic and fix scripts]
+├── metal/                   # Metal shader files for GPU acceleration (macOS)
+│   ├── ggml-metal.metal     # Metal Shading Language source code
+│   └── metal_kernels.metallib # Compiled Metal library
+│
+└── ADDITIONALREADME/        # Additional documentation files
+    ├── data_preparation_guide.md # CRITICAL guide for preparing input data
+    ├── llamacag-kv-cache-guide.md # Detailed explanation of KV cache modes
+    ├── n8n-integration-clarification.md # Notes on N8N integration
+    ├── READMECHANGES.md     # Log of README changes
+    └── structure.md         # Detailed project structure analysis (this file)
+
 ```
-disregard the fixes folder, it's not used yet, it contains artifacts from debugging. you do not have to use or pull it.
+**Note:** The `fixes/` directory contains temporary debugging artifacts and is not part of the core application.
+
+For a more detailed breakdown of the project structure and component interactions, please refer to the [Structure Analysis](ADDITIONALREADME/structure.md).
 
 ## 📋 Table of Contents
 
@@ -86,6 +96,19 @@ This approach allows models like Gemma 3 and Llama 3 to efficiently utilize thei
 - **Cache Warm-up**: Pre-load model and cache state into memory for near-instantaneous responses
 - **GPU Acceleration**: Configure GPU offloading for significantly improved performance (especially on Apple Silicon)
 - **Settings**: Configure paths, model parameters (threads, batch size, GPU layers), and application behavior
+- **Data Preparation Focused**: Designed for optimal performance with pre-processed, structured data (See [Data Preparation](#crucial-data-preparation) below).
+
+## ❗ Crucial: Data Preparation
+
+LlamaCag's accuracy and reliability heavily depend on the quality and structure of the input document used to create the KV cache. While it can process generic text, its true potential for precise data retrieval is unlocked with **optimally pre-processed data**.
+
+**Why is this critical?**
+- **Context Understanding:** LLMs work best with clear structure (headings, lists, consistent formatting). Poorly formatted or unstructured text can confuse the model, leading to inaccurate answers or incorrect recitation starting points (e.g., mistaking a prologue for the main content).
+- **Token Efficiency:** Removing redundant whitespace and using efficient formatting (like Markdown) maximizes the useful information within the model's context window.
+- **Avoiding Artifacts:** Ambiguous formatting, hidden characters, or inconsistent structure in the source document can manifest as errors or unexpected behavior during Q&A or recitation.
+
+**How to Prepare Data:**
+Please refer to the **detailed [Data Preparation Guide](ADDITIONALREADME/data_preparation_guide.md)** for best practices on converting various data types (text, numbers, tables, technical specs) into an LLM-friendly format using Markdown. Following this guide is essential for achieving high-fidelity results, especially for business data retrieval.
 
 ## 📷 Screenshots
 
@@ -213,6 +236,18 @@ cd LlamaCagUI
 # For Windows: python main.py
 ```
 
+### Recommended Model: `google/gemma-3-4b-it-Q4_1`
+
+While LlamaCag supports various GGUF models, extensive testing and development for the core CAG features (especially KV caching and state management) have been performed using **`google/gemma-3-4b-it-Q4_1.gguf`**.
+
+**Why this model is recommended:**
+- **Tested:** It's the primary model used during development and debugging of the KV cache and chat engine logic.
+- **Mac Optimization:** Gemma models often perform well with Metal GPU acceleration on Apple Silicon. The Q4_1 quantization offers a good balance of performance and quality for this size.
+- **Context Size:** While labeled 4B, this specific Gemma variant often handles larger contexts effectively within reasonable memory constraints compared to some other models of similar parameter counts, making it suitable for the CAG approach.
+- **Instruction Following:** As an instruct-tuned model, it generally follows the specific prompts used by LlamaCag for Q&A and recitation reasonably well (though prompt adherence can still vary).
+
+Using other models might work, but could lead to different performance characteristics or unexpected behavior with KV cache loading, state management, or prompt adherence due to variations in model architecture and training. Sticking to the recommended model ensures the highest likelihood of compatibility with the current implementation. You can download it via the "Download Model" button in the Models tab.
+
 ### Performance Optimization
 
 For optimal performance, especially with large documents:
@@ -260,8 +295,12 @@ For optimal performance, especially with large documents:
 2. Ensure **Use KV Cache** is checked. The currently selected or master KV cache will be loaded
 3. Type your question about the document in the input field
 4. Click **Send**. The application loads the KV cache and processes *only your query*, resulting in a fast response that leverages the document's context
-5. Continue the conversation with follow-up questions, which remain fast as the document context is already loaded via the cache
-6. For even faster responses, click **Warm Up Cache** before asking questions. This pre-loads the model and cache into memory for near-instantaneous responses
+5. Continue the conversation with follow-up questions.
+6. **Warm Up Cache**: For the fastest responses during a session, click **Warm Up Cache** after selecting a cache. This pre-loads the model and cache into memory.
+7. **Cache Behavior (When Warmed Up)**: Select the desired mode using the radio buttons:
+    *   **Standard (State Persists)**: Fastest for conversation. Cache state evolves with chat.
+    *   **Fresh Context (Reload Before Query)**: Guarantees statelessness. Reloads clean cache *before* each query. Ideal for testing/automation.
+    *   **Fresh Context (Reload After Query)**: Experimental. Reloads clean cache *after* each query.
 
 ### Managing KV Caches
 
@@ -288,10 +327,12 @@ LlamaCag UI uses `llama-cpp-python` for true KV caching:
    - It then loads the pre-computed state from the selected `.llama_cache` file (`llm.load_state(...)`)
    - Your query is tokenized and processed (`llm.eval(query_tokens)` or `llm.create_completion(...)`). Since the document context is already in the model's state via the cache, only the query needs processing, making responses much faster
 
-3. **Warm-Up Mode**:
-   - When you click "Warm Up Cache", the model and cache are loaded into memory and kept there
-   - All subsequent queries are processed using this already-loaded state
-   - This provides near-instantaneous responses as no loading is required between queries
+3. **Warm-Up Mode & Cache Behavior**:
+   - When you click "Warm Up Cache", the model and cache are loaded into memory and kept there.
+   - The selected **Cache Behavior** mode determines how the state is handled for subsequent queries:
+     - **Standard**: State evolves with the conversation.
+     - **Fresh Context (Reload Before Query)**: Original state is reloaded from disk *before* processing the query, ensuring a clean slate for the response generation.
+     - **Fresh Context (Reload After Query)**: Query is processed using the current state, and the original state is reloaded *after* the response is generated, preparing for the next query.
 
 ### Directory Structure
 
@@ -389,7 +430,8 @@ Log files are stored in `~/.llamacag/logs/` with timestamps. When troubleshootin
 - **File Types**: Best support for plain text (.txt) and markdown (.md) files
 - **Memory Usage**: Large models and documents require significant RAM
 - **Performance**: Initial KV cache creation can be slow for large documents. Chat responses using the cache are significantly faster. Performance depends on CPU/GPU capabilities.
-- **Cache Compatibility**: KV caches are specific to the model file they were created with. Using a cache created with a different model may lead to errors or unexpected behavior.
+- **Cache Compatibility**: KV caches are specific to the exact model file (`.gguf`) they were created with. Using a cache created with a different model *will* lead to errors or unpredictable behavior. Always use the same model for creating and querying a cache.
+- **Recitation Limitations**: Precise recitation of specific sections (e.g., "the third paragraph") can be unreliable, as the model may struggle to perfectly identify semantic boundaries within the raw cached text. Full document recitation (starting from the absolute beginning) is more consistent.
 - **Multiple Documents**: Currently limited to one document context per conversation (via a single KV cache).
 
 ## 🔮 Future Improvements

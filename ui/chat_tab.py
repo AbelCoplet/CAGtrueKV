@@ -16,7 +16,8 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTextEdit, QLineEdit,
     QPushButton, QLabel, QCheckBox, QSlider, QSpinBox,
     QComboBox, QFileDialog, QSplitter, QFrame, QApplication,
-    QGroupBox, QStyle, QToolTip, QFormLayout # Added QFormLayout
+    QGroupBox, QStyle, QToolTip, QFormLayout, QRadioButton, # Added QRadioButton
+    QButtonGroup # Added QButtonGroup
 )
 from PyQt5.QtCore import Qt, QSize, pyqtSignal, pyqtSlot
 from PyQt5.QtGui import QFont, QTextCursor, QColor, QPalette, QPixmap
@@ -111,15 +112,31 @@ class ChatTab(QWidget):
         self.warmup_button.setEnabled(False) # Disabled initially
         cache_status_layout.addWidget(self.warmup_button)
 
-        # Fresh Context Mode checkbox
-        self.fresh_context_checkbox = QCheckBox("Fresh Context Mode")
-        self.fresh_context_checkbox.setToolTip(
-            "When enabled, each query uses a fresh copy of the document context,\n"
-            "preventing conversation history from accumulating in the model's memory.\n"
-            "Crucial for stability with large documents."
-        )
-        # Initialize from engine state later in initialize_state
-        cache_status_layout.addWidget(self.fresh_context_checkbox)
+        # --- Cache Behavior Mode ---
+        self.cache_mode_group = QGroupBox("Cache Behavior (When Warmed Up)")
+        cache_mode_layout = QVBoxLayout(self.cache_mode_group) # Use QVBoxLayout for vertical stacking
+
+        self.mode_standard_radio = QRadioButton("Standard (State Persists)")
+        self.mode_standard_radio.setToolTip("Cache state evolves with conversation (default).")
+        self.mode_standard_radio.setChecked(True) # Default mode
+
+        self.mode_fresh_before_radio = QRadioButton("Fresh Context (Reload Before Query)")
+        self.mode_fresh_before_radio.setToolTip("Reloads clean cache state before each query.\nGuarantees stateless response generation.")
+
+        self.mode_fresh_after_radio = QRadioButton("Fresh Context (Reload After Query)")
+        self.mode_fresh_after_radio.setToolTip("Reloads clean cache state after each query.\nMay feel faster, response uses previous state.")
+
+        cache_mode_layout.addWidget(self.mode_standard_radio)
+        cache_mode_layout.addWidget(self.mode_fresh_before_radio)
+        cache_mode_layout.addWidget(self.mode_fresh_after_radio)
+
+        # Button group to manage radio buttons
+        self.cache_mode_button_group = QButtonGroup(self)
+        self.cache_mode_button_group.addButton(self.mode_standard_radio, 1) # Assign IDs
+        self.cache_mode_button_group.addButton(self.mode_fresh_before_radio, 2)
+        self.cache_mode_button_group.addButton(self.mode_fresh_after_radio, 3)
+
+        cache_status_layout.addWidget(self.cache_mode_group) # Add the group box to the main status layout
 
         # Add Reset Button
         self.reset_button = QPushButton("Reset Engine")
@@ -188,6 +205,21 @@ class ChatTab(QWidget):
         self.max_tokens_spinbox.setSingleStep(64)
         self.max_tokens_spinbox.setToolTip("Maximum number of tokens the model should generate for a response.")
         gen_settings_layout.addWidget(self.max_tokens_spinbox)
+
+        # Add Temperature Slider
+        gen_settings_layout.addWidget(QLabel("Temperature:"))
+        self.temperature_slider = QSlider(Qt.Horizontal)
+        self.temperature_slider.setRange(0, 100) # Represents 0.0 to 1.0
+        self.temperature_slider.setValue(70) # Default 0.7
+        self.temperature_slider.setTickInterval(10)
+        self.temperature_slider.setTickPosition(QSlider.TicksBelow)
+        self.temperature_slider.setToolTip("Controls randomness. Lower values (e.g., 0.1) make output more focused/deterministic,\nhigher values (e.g., 0.9) make it more creative/random. Default: 0.7")
+        gen_settings_layout.addWidget(self.temperature_slider)
+
+        self.temperature_label = QLabel("0.7")
+        self.temperature_label.setFixedWidth(30) # Fixed width for consistent layout
+        gen_settings_layout.addWidget(self.temperature_label)
+
         gen_settings_layout.addStretch()
 
         layout.addWidget(gen_settings_group)
@@ -223,21 +255,22 @@ class ChatTab(QWidget):
         # Chat controls
         self.clear_chat_button.clicked.connect(self.clear_chat_display)
 
-        # Fresh Context Mode toggle
-        self.fresh_context_checkbox.stateChanged.connect(self.toggle_fresh_context_mode)
+        # Cache Behavior Mode change - Connect to the engine's setter method
+        self.cache_mode_button_group.buttonClicked[int].connect(self.on_cache_mode_changed) # Keep this signal
 
         # Reset button
         self.reset_button.clicked.connect(self.reset_engine)
+
+        # Temperature slider signal
+        self.temperature_slider.valueChanged.connect(self.update_temperature_label)
 
 
     def initialize_state(self):
         """Initialize UI state from current settings"""
         self.update_cache_status_display() # Update cache status on init
         self.on_cache_status_changed("Idle") # Initialize specific status
-        # Initialize Fresh Context checkbox state
-        self.fresh_context_checkbox.blockSignals(True)
-        self.fresh_context_checkbox.setChecked(self.chat_engine.fresh_context_mode)
-        self.fresh_context_checkbox.blockSignals(False)
+        # Initialize Cache Behavior Mode state from engine
+        self.set_cache_mode_ui(self.chat_engine.cache_behavior_mode)
 
     def send_message(self):
         """Send the user's message to the chat engine"""
@@ -253,14 +286,15 @@ class ChatTab(QWidget):
 
         # Get generation parameters from UI
         max_tokens = self.max_tokens_spinbox.value()
-        # temperature = self.temperature_slider.value() / 100.0 # Example if temp slider existed
+        temperature = self.temperature_slider.value() / 100.0
 
         # Send to chat engine
         try:
             # Disable input immediately (response_started signal will also do this, but belt-and-suspenders)
             self.set_input_enabled(False)
-            # Pass max_tokens from UI to the engine
-            if not self.chat_engine.send_message(message, max_tokens=max_tokens):
+            # Pass max_tokens and temperature from UI to the engine
+            # Note: chat_engine.send_message needs to be updated to accept temperature
+            if not self.chat_engine.send_message(message, max_tokens=max_tokens, temperature=temperature):
                  # If send_message returns False (e.g., safety check failed), re-enable input
                  self.set_input_enabled(True)
             # Otherwise, input remains disabled until response_complete or error_occurred
@@ -382,11 +416,21 @@ class ChatTab(QWidget):
             self.append_message("Error", "Failed to reset chat engine.", color=QColor("red"))
 
     @pyqtSlot(int)
-    def toggle_fresh_context_mode(self, state):
-        """Toggle Fresh Context Mode on or off."""
-        enabled = (state == Qt.Checked)
-        self.chat_engine.enable_fresh_context_mode(enabled)
-        # No need to update UI here, chat_engine signal will trigger status update
+    def on_cache_mode_changed(self, mode_id: int):
+        """Handle changes in the selected cache behavior mode via UI click."""
+        # Map ID back to a mode identifier
+        mode_map = {
+            1: "standard",
+            2: "fresh_before",
+            3: "fresh_after"
+        }
+        selected_mode = mode_map.get(mode_id, "standard")
+        logging.info(f"UI requested cache behavior mode change to: {selected_mode}")
+        # Call the engine's method to actually change the mode
+        self.chat_engine.set_cache_behavior_mode(selected_mode)
+        # The engine's signal `cache_status_changed` might update the UI,
+        # but call update_cache_status_display here too for robustness.
+        self.update_cache_status_display()
 
     @pyqtSlot(int)
     def on_cache_toggle_changed(self, state):
@@ -518,23 +562,35 @@ class ChatTab(QWidget):
         """Update the KV cache status indicators in the UI, including warm-up button state."""
         # --- Update Cache Name Label ---
         cache_path_str = self.chat_engine.current_kv_cache_path
-        cache_name = "None"
+        display_text = "Cache: None"
         cache_exists = False
+        cache_name = "None" # Initialize cache_name with a default value
         if cache_path_str:
             cache_path = Path(cache_path_str)
             cache_name = cache_path.name
+            model_id_str = "(Unknown Model)" # Default
             try:
                 if cache_path.exists():
                     cache_exists = True
+                    # Get model ID from cache info
+                    cache_info = self.cache_manager.get_cache_info(cache_path_str)
+                    if cache_info:
+                        model_id = cache_info.get('model_id')
+                        if model_id:
+                            model_id_str = f"({model_id})"
+                    display_text = f"Cache: {cache_name} {model_id_str}"
                 else:
-                    cache_name = f"{cache_name} (Not Found!)"
+                    display_text = f"Cache: {cache_name} (Not Found!)"
             except OSError as e:
                  logging.error(f"Error checking cache file existence '{cache_path_str}': {e}")
-                 cache_name = f"{cache_name} (Error Checking!)"
-        self.cache_name_label.setText(f"Cache: {cache_name}")
+                 display_text = f"Cache: {cache_name} (Error Checking!)"
+        self.cache_name_label.setText(display_text)
 
         # --- Update Warmup Button State ---
-        can_warmup_now = self._can_warmup()
+        # Use cache_exists determined above
+        can_warmup_now = (self.chat_engine.use_kv_cache and
+                          cache_path_str is not None and
+                          cache_exists) # Use the existence check result
         is_currently_warming = "Warming Up" in self.cache_effective_status_label.text() # Check current status text
 
         if self.chat_engine.warmed_cache_path == cache_path_str and cache_exists:
@@ -569,11 +625,28 @@ class ChatTab(QWidget):
         self.cache_toggle.setChecked(use_cache)
         self.cache_toggle.blockSignals(False)
 
-        # --- Ensure Fresh Context Checkbox Reflects Engine State ---
-        fresh_context = self.chat_engine.fresh_context_mode
-        self.fresh_context_checkbox.blockSignals(True)
-        self.fresh_context_checkbox.setChecked(fresh_context)
-        self.fresh_context_checkbox.blockSignals(False)
+        # --- Ensure Cache Behavior Mode Radio Buttons Reflect Engine State ---
+        self.set_cache_mode_ui(self.chat_engine.cache_behavior_mode)
+
+        # Initialize temperature label
+        self.update_temperature_label(self.temperature_slider.value())
 
 
         logging.debug(f"Cache status display updated. Selected: '{cache_name}', Warmed: '{Path(self.chat_engine.warmed_cache_path).name if self.chat_engine.warmed_cache_path else 'None'}'")
+
+    @pyqtSlot(int)
+    def update_temperature_label(self, value):
+        """Update the label displaying the current temperature."""
+        temp = value / 100.0
+        self.temperature_label.setText(f"{temp:.1f}")
+
+    def set_cache_mode_ui(self, mode: str):
+        """Updates the radio buttons to reflect the given mode."""
+        self.cache_mode_button_group.blockSignals(True)
+        if mode == "fresh_before":
+            self.mode_fresh_before_radio.setChecked(True)
+        elif mode == "fresh_after":
+            self.mode_fresh_after_radio.setChecked(True)
+        else: # Default to standard
+            self.mode_standard_radio.setChecked(True)
+        self.cache_mode_button_group.blockSignals(False)
