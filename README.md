@@ -74,7 +74,7 @@ For a more detailed breakdown of the project structure and component interaction
 - [FAQ](#faq)
 - [License and Credits](#license-and-credits)
 
-## 🧠 Core Concept
+##  Core Concept
 
 The fundamental idea behind LlamaCag UI is **Context-Augmented Generation (CAG)**, leveraging the power of `llama.cpp`'s KV (Key/Value) caching mechanism. Unlike standard RAG (Retrieval-Augmented Generation) systems that retrieve snippets of text, CAG:
 
@@ -117,7 +117,7 @@ Please refer to the **detailed [Data Preparation Guide](ADDITIONALREADME/data_pr
 ![KV Cache Monitor](https://via.placeholder.com/800x450?text=KV+Cache+Monitor)
 ![Settings](https://via.placeholder.com/800x450?text=Settings)
 
-## 🚀 Installation
+##  Installation
 
 ### Prerequisites
 
@@ -309,7 +309,7 @@ For optimal performance, especially with large documents:
 4. Click **Purge All** to remove all caches and start fresh
 5. Use **Refresh** to update the cache list after external changes
 
-## 🔍 Technical Details
+##  Technical Details
 
 ### How Context-Augmented Generation Works
 
@@ -423,7 +423,7 @@ Log files are stored in `~/.llamacag/logs/` with timestamps. When troubleshootin
 ### Q: Does it support GPU acceleration?
 **A:** Yes, GPU acceleration can be enabled by setting the GPU Layers parameter in the Settings tab. This requires `llama-cpp-python` to be installed with the correct GPU support (e.g., Metal for macOS, CUDA for Nvidia).
 
-## 📚 Known Limitations
+##  Known Limitations
 
 - **Document Size**: Documents larger than the model's context window will be truncated
 - **File Types**: Best support for plain text (.txt) and markdown (.md) files
@@ -576,7 +576,7 @@ Both approaches have their place, and having them both available gives users fle
 The current implementation cleverly falls back to manual context prepending when true KV caching isn't available, but making it an explicit choice would give users more control over the performance/simplicity trade-off.
 
 
-## 🌟 License and Credits
+##  License and Credits
 
 ### Components and Libraries
 The application uses several open-source components:
