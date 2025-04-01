@@ -1,9 +1,8 @@
 ### Screenshots
-![Welcome Screen](https://github.com/AbelCoplet/LlamaCagUI/blob/main/images/welcomescreen.png)
-![Document Processor](https://github.com/AbelCoplet/LlamaCagUI/blob/main/images/documentprocessor.png)
-![Main Chat](https://github.com/AbelCoplet/LlamaCagUI/blob/main/images/mainchat.png)
-![Model Select](https://github.com/AbelCoplet/LlamaCagUI/blob/main/images/modelselect.png)
-
+![Welcome Screen](https://github.com/AbelCoplet/CAGtrueKV/blob/main/images/Welcome.png)  
+![Document Processor](https://github.com/AbelCoplet/CAGtrueKV/blob/main/images/Document.png)  
+![Main Chat](https://github.com/AbelCoplet/CAGtrueKV/blob/main/images/Chat.png)  
+![Model Select](https://github.com/AbelCoplet/CAGtrueKV/blob/main/images/KV%20Cache.png)
 # LlamaCag UI
 
 ## Context-Augmented Generation for Large Language Models
