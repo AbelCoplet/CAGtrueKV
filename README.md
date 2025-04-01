@@ -63,7 +63,7 @@ LlamaCagUI/
 
 For a more detailed breakdown of the project structure and component interactions, please refer to the [Structure Analysis](ADDITIONALREADME/structure.md).
 
-## 📋 Table of Contents
+## Table of Contents
 
 - [Core Concept](#core-concept)
 - [Key Features](#key-features)
@@ -86,7 +86,7 @@ The fundamental idea behind LlamaCag UI is **Context-Augmented Generation (CAG)*
 
 This approach allows models like Gemma 3 and Llama 3 to efficiently utilize their large context windows (e.g., 128K tokens) for in-depth document analysis and question answering, significantly speeding up conversations after the initial document processing.
 
-## ✨ Key Features
+##  Key Features
 
 - **Model Management**: Download, manage, and select from various large context window models (GGUF format)
 - **Document Processing**: Load documents and process them into true `llama.cpp` KV caches for efficient context augmentation
@@ -109,7 +109,7 @@ LlamaCag's accuracy and reliability heavily depend on the quality and structure 
 **How to Prepare Data:**
 Please refer to the **detailed [Data Preparation Guide](ADDITIONALREADME/data_preparation_guide.md)** for best practices on converting various data types (text, numbers, tables, technical specs) into an LLM-friendly format using Markdown. Following this guide is essential for achieving high-fidelity results, especially for business data retrieval.
 
-## 📷 Screenshots
+## Screenshots
 
 ![Model Management](https://via.placeholder.com/800x450?text=Model+Management)
 ![Document Processing](https://via.placeholder.com/800x450?text=Document+Processing) 
@@ -261,7 +261,7 @@ For optimal performance, especially with large documents:
 3. Set **Threads** to match your CPU's performance core count
 4. Click **Save Settings**
 
-## 📝 Usage Guide
+##  Usage Guide
 
 ### First-Time Setup
 
@@ -348,7 +348,7 @@ LlamaCag UI creates and uses the following directories:
   - **kv_caches/**: Document caches
   - **temp_chunks/**: Temporary files used during processing
 
-## 🛠️ Troubleshooting
+##  Troubleshooting
 
 ### Common Issues
 
@@ -433,7 +433,7 @@ Log files are stored in `~/.llamacag/logs/` with timestamps. When troubleshootin
 - **Recitation Limitations**: Precise recitation of specific sections (e.g., "the third paragraph") can be unreliable, as the model may struggle to perfectly identify semantic boundaries within the raw cached text. Full document recitation (starting from the absolute beginning) is more consistent.
 - **Multiple Documents**: Currently limited to one document context per conversation (via a single KV cache).
 
-## 🔮 Future Improvements
+##  Future Improvements
 
 - Advanced document processing with chunking for very large documents
 - Multiple document support for combining context from several sources
